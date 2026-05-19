@@ -1,0 +1,13 @@
+.env
+.venv/
+learning_ai_platform/
+.idea/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+materials/*
+!materials/.gitkeep
+vector_db/*
+!vector_db/.gitkeep
+debug_outputs/*
+!debug_outputs/.gitkeep
