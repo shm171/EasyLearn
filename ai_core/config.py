@@ -45,6 +45,7 @@ class Settings(BaseSettings):
         default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         alias="HUGGINGFACE_EMBEDDING_MODEL",
     )
+    huggingface_cache_folder: str | None = Field(default=None, alias="HUGGINGFACE_CACHE_FOLDER")
 
     deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
     deepseek_model: str = Field(default="deepseek-chat", alias="DEEPSEEK_MODEL")
@@ -53,6 +54,8 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=1000, alias="CHUNK_SIZE")
     chunk_overlap: int = Field(default=150, alias="CHUNK_OVERLAP")
     top_k: int = Field(default=5, alias="TOP_K")
+    rag_chunk_max_chars: int = Field(default=1200, alias="RAG_CHUNK_MAX_CHARS")
+    rag_context_max_chars: int = Field(default=5000, alias="RAG_CONTEXT_MAX_CHARS")
 
     def __init__(self, **data):
         """Create settings, falling back to os.environ if pydantic-settings is absent."""
@@ -71,12 +74,15 @@ class Settings(BaseSettings):
                     "HUGGINGFACE_EMBEDDING_MODEL",
                     "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
                 ),
+                "HUGGINGFACE_CACHE_FOLDER": os.getenv("HUGGINGFACE_CACHE_FOLDER"),
                 "DEEPSEEK_API_KEY": os.getenv("DEEPSEEK_API_KEY"),
                 "DEEPSEEK_MODEL": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
                 "VECTOR_DB_DIR": os.getenv("VECTOR_DB_DIR", "./vector_db"),
                 "CHUNK_SIZE": int(os.getenv("CHUNK_SIZE", "1000")),
                 "CHUNK_OVERLAP": int(os.getenv("CHUNK_OVERLAP", "150")),
                 "TOP_K": int(os.getenv("TOP_K", "5")),
+                "RAG_CHUNK_MAX_CHARS": int(os.getenv("RAG_CHUNK_MAX_CHARS", "1200")),
+                "RAG_CONTEXT_MAX_CHARS": int(os.getenv("RAG_CONTEXT_MAX_CHARS", "5000")),
             }
         super().__init__(**data)
 

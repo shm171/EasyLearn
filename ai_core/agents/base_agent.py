@@ -61,9 +61,8 @@ class BaseLearningAgent:
                 return response["structured_response"]
 
             messages = response.get("messages") or []
-            if messages:
-                last = messages[-1]
-                content = getattr(last, "content", None)
+            for message in reversed(messages):
+                content = _message_content(message)
                 if content:
                     return content
 
@@ -75,5 +74,33 @@ class BaseLearningAgent:
         active_thread = thread_id or self.thread_id
         config = {"configurable": {"thread_id": active_thread}}
         return self.agent.stream({"messages": [{"role": "user", "content": user_message}]}, config=config)
+
+
+def _message_content(message: Any) -> str:
+    """Return non-empty text from common LangChain message shapes."""
+
+    message_type = ""
+    if isinstance(message, dict):
+        message_type = str(message.get("type") or message.get("role") or "")
+        content = message.get("content")
+    else:
+        message_type = str(getattr(message, "type", "") or getattr(message, "role", ""))
+        content = getattr(message, "content", None)
+
+    if message_type == "tool":
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if text:
+                    parts.append(str(text))
+        return "\n".join(part.strip() for part in parts if part and part.strip())
+    return ""
 
 

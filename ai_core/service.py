@@ -2,6 +2,10 @@
 
 """Unified service API for CLI, FastAPI, and future GUI/Web clients."""
 
+from collections.abc import Iterator
+from dataclasses import dataclass
+from threading import RLock, Thread
+from time import perf_counter
 from typing import Any
 
 from ai_core.agents.evaluator_agent import LearningEvaluatorAgent
@@ -25,10 +29,19 @@ from ai_core.schemas import (
     PDFQueryResult,
     Quiz,
     QuizGenerationRequest,
+    SourceChunk,
     TutorChatRequest,
     TutorChatResponse,
     UserAnswer,
 )
+
+
+@dataclass(frozen=True)
+class PDFAnswerStream:
+    """Prepared streaming answer plus the source chunks already retrieved."""
+
+    source_chunks: list[SourceChunk]
+    text_stream: Iterator[str]
 
 
 class LearningAIService:
@@ -44,38 +57,104 @@ class LearningAIService:
         self._retriever: PDFRetriever | None = None
         self._model: Any | None = None
         self._checkpointer: Any | None = None
+        self._init_lock = RLock()
+        self._warm_up_lock = RLock()
+        self._warm_up_thread: Thread | None = None
+        self._warm_up_status: dict[str, Any] = {"state": "not_started"}
 
     @property
     def knowledge_base(self) -> DocumentKnowledgeBase:
         """Return the lazily initialized document knowledge base."""
 
-        if self._knowledge_base is None:
-            self._knowledge_base = DocumentKnowledgeBase()
-        return self._knowledge_base
+        with self._init_lock:
+            if self._knowledge_base is None:
+                self._knowledge_base = DocumentKnowledgeBase()
+            return self._knowledge_base
 
     @property
     def retriever(self) -> PDFRetriever:
         """Return the lazily initialized PDF retriever."""
 
-        if self._retriever is None:
-            self._retriever = PDFRetriever(self.knowledge_base)
-        return self._retriever
+        with self._init_lock:
+            if self._retriever is None:
+                self._retriever = PDFRetriever(self.knowledge_base)
+            return self._retriever
 
     @property
     def model(self) -> Any:
         """Return the lazily initialized chat model."""
 
-        if self._model is None:
-            self._model = get_chat_model()
-        return self._model
+        with self._init_lock:
+            if self._model is None:
+                self._model = get_chat_model()
+            return self._model
 
     @property
     def checkpointer(self) -> Any | None:
         """Return the lazily initialized memory checkpointer."""
 
-        if self._checkpointer is None:
-            self._checkpointer = create_memory_checkpointer()
-        return self._checkpointer
+        with self._init_lock:
+            if self._checkpointer is None:
+                self._checkpointer = create_memory_checkpointer()
+            return self._checkpointer
+
+    @property
+    def warm_up_status(self) -> dict[str, Any]:
+        """Return the latest warm-up status snapshot."""
+
+        return dict(self._warm_up_status)
+
+    def warm_up(self, include_model: bool = True) -> dict[str, Any]:
+        """Eagerly initialize slow resources before the first user question."""
+
+        with self._warm_up_lock:
+            self._warm_up_status = {"state": "running"}
+            timings: dict[str, float] = {}
+            started_at = perf_counter()
+            try:
+                step_started = perf_counter()
+                knowledge_base = self.knowledge_base
+                timings["knowledge_base_seconds"] = perf_counter() - step_started
+
+                if self.settings.embedding_provider.lower() == "huggingface":
+                    step_started = perf_counter()
+                    knowledge_base.embedding_model.embed_query("warmup")
+                    timings["embedding_query_seconds"] = perf_counter() - step_started
+
+                if include_model:
+                    step_started = perf_counter()
+                    _ = self.model
+                    timings["chat_model_seconds"] = perf_counter() - step_started
+
+                self._warm_up_status = {
+                    "state": "ready",
+                    "total_seconds": perf_counter() - started_at,
+                    **timings,
+                }
+            except Exception as exc:
+                self._warm_up_status = {
+                    "state": "failed",
+                    "error": str(exc),
+                    "total_seconds": perf_counter() - started_at,
+                    **timings,
+                }
+            return dict(self._warm_up_status)
+
+    def warm_up_async(self, include_model: bool = True) -> None:
+        """Start one background warm-up thread if no warm-up is running."""
+
+        with self._warm_up_lock:
+            if self._warm_up_thread is not None and self._warm_up_thread.is_alive():
+                return
+            if self._warm_up_status.get("state") == "ready":
+                return
+            self._warm_up_status = {"state": "running"}
+            self._warm_up_thread = Thread(
+                target=self.warm_up,
+                kwargs={"include_model": include_model},
+                daemon=True,
+            )
+            self._warm_up_thread.start()
 
     def ingest_pdf(self, course_id: str, file_path: str, chapter_title: str | None = None) -> PDFIngestResult:
         """Read, chunk, and store a PDF in the local vector database."""
@@ -103,8 +182,26 @@ class LearningAIService:
             chapter_title=chapter_title,
             top_k=self.settings.top_k,
         )
-        agent = PDFReadingAgent(self.model, self.retriever, self.checkpointer)
+        agent = PDFReadingAgent(self.model, self.retriever)
         return agent.answer(request)
+
+    def stream_pdf_answer(
+        self,
+        course_id: str,
+        question: str,
+        chapter_title: str | None = None,
+    ) -> PDFAnswerStream:
+        """Prepare a streaming PDF answer for Web clients."""
+
+        request = PDFQueryRequest(
+            course_id=course_id,
+            question=question,
+            chapter_title=chapter_title,
+            top_k=self.settings.top_k,
+        )
+        agent = PDFReadingAgent(self.model, self.retriever)
+        source_chunks, text_stream = agent.stream_answer(request)
+        return PDFAnswerStream(source_chunks=source_chunks, text_stream=text_stream)
 
     def summarize_chapter(self, course_id: str, chapter_title: str) -> ChapterSummary:
         """Generate a structured summary for a course chapter."""

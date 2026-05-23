@@ -2,6 +2,7 @@
 
 """Model factory for chat and embedding providers."""
 
+from functools import lru_cache
 from typing import Any
 
 from ai_core.config import get_settings
@@ -18,6 +19,12 @@ def get_chat_model(provider: str | None = None) -> Any:
 
     settings = get_settings()
     selected = (provider or settings.ai_provider).lower()
+    return _get_chat_model_cached(selected)
+
+
+@lru_cache(maxsize=4)
+def _get_chat_model_cached(selected: str) -> Any:
+    settings = get_settings()
 
     if selected == "openai":
         _require_key(settings.openai_api_key, "OPENAI_API_KEY")
@@ -51,6 +58,12 @@ def get_embedding_model(provider: str | None = None) -> Any:
 
     settings = get_settings()
     selected = (provider or settings.embedding_provider).lower()
+    return _get_embedding_model_cached(selected)
+
+
+@lru_cache(maxsize=4)
+def _get_embedding_model_cached(selected: str) -> Any:
+    settings = get_settings()
 
     if selected == "openai":
         _require_key(settings.openai_api_key, "OPENAI_API_KEY")
@@ -75,7 +88,11 @@ def get_embedding_model(provider: str | None = None) -> Any:
             raise RuntimeError(
                 "Install langchain-huggingface and sentence-transformers to use local HuggingFace embeddings."
             ) from exc
-        return HuggingFaceEmbeddings(model_name=settings.huggingface_embedding_model)
+        return HuggingFaceEmbeddings(
+            model_name=settings.huggingface_embedding_model,
+            cache_folder=settings.huggingface_cache_folder,
+            show_progress=False,
+        )
 
     if selected == "deepseek":
         raise ValueError(

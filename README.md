@@ -34,6 +34,30 @@ uvicorn api.main:app --reload
 
 打开 `http://127.0.0.1:8000/docs` 调试接口。
 
+## 第二阶段：启动 Streamlit 本地 Web 调试界面
+
+### 1. 激活虚拟环境
+
+```powershell
+.\.venv\Scripts\activate
+```
+
+### 2. 安装依赖
+
+```powershell
+pip install -r requirements.txt
+```
+
+### 3. 启动 Web UI
+
+```powershell
+streamlit run web_ui/app.py
+```
+
+### 4. 浏览器访问
+
+Streamlit 会自动打开浏览器。如果没有自动打开，请根据终端提示访问本地地址。
+
 ## Python 调用
 
 ```python
@@ -62,4 +86,3 @@ report = service.evaluate_answers(
 ## 阶段边界
 
 当前阶段只支持文本型 PDF，不支持 OCR、GUI、PPT、docx、txt、md 或代码图形化调试器。
-

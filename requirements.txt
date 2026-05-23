@@ -19,3 +19,5 @@ uvicorn
 langchain-huggingface
 sentence-transformers
 pytest
+streamlit
+pandas
