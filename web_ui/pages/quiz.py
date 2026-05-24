@@ -2,6 +2,12 @@ from __future__ import annotations
 
 """Quiz generation page."""
 
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from queue import Empty, Queue
+from time import monotonic, sleep
+from typing import TypeVar
+
 import streamlit as st
 
 from web_ui.state import current_chapter_title, current_course_id
@@ -14,6 +20,8 @@ QUESTION_TYPE_OPTIONS = {
     "programming": "程序题",
     "short_answer": "简答题",
 }
+ProgressEvent = tuple[float, str]
+T = TypeVar("T")
 
 
 def _display_quiz(data: dict) -> None:
@@ -45,6 +53,46 @@ def _display_quiz(data: dict) -> None:
                 st.write(question.get("explanation", ""))
 
 
+def _run_with_progress(task: Callable[[Callable[[float, str], None]], T], fallback_seconds: float = 8.0) -> T:
+    progress_events: Queue[ProgressEvent] = Queue()
+    progress_bar = st.progress(0.0, text="准备生成题目")
+    started_at = monotonic()
+    current_value = 0.0
+
+    def report(value: float, message: str) -> None:
+        progress_events.put((value, message))
+
+    def drain_events() -> None:
+        nonlocal current_value
+        while True:
+            try:
+                value, message = progress_events.get_nowait()
+            except Empty:
+                break
+            current_value = max(current_value, min(max(value, 0.0), 1.0))
+            progress_bar.progress(current_value, text=message)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future: Future[T] = executor.submit(task, report)
+        while not future.done():
+            drain_events()
+            elapsed = monotonic() - started_at
+            target_value = min(0.88, 0.08 + (elapsed / fallback_seconds) * 0.72)
+            if target_value > current_value + 0.015:
+                current_value = target_value
+                progress_bar.progress(current_value, text="模型正在生成题目")
+            sleep(0.1)
+        drain_events()
+        try:
+            result = future.result()
+        except Exception:
+            progress_bar.progress(1.0, text="生成失败")
+            raise
+
+    progress_bar.progress(1.0, text="题目生成完成")
+    return result
+
+
 def render() -> None:
     """Render the quiz generation page."""
 
@@ -67,15 +115,20 @@ def render() -> None:
             st.warning("请至少选择一种题型。")
             return
         try:
-            with st.spinner("正在生成题目..."):
-                quiz = st.session_state.service.generate_programming_quiz(
+            service = st.session_state.service
+
+            def generate(report: Callable[[float, str], None]):
+                return service.generate_programming_quiz(
                     course_id=course_id,
                     chapter_title=chapter_title,
                     programming_language=programming_language,
                     difficulty=difficulty,
                     question_types=selected_labels,
                     question_count=int(question_count),
+                    progress_callback=report,
                 )
+
+            quiz = _run_with_progress(generate)
             data = to_jsonable(quiz)
             st.session_state.last_quiz = quiz
             st.session_state.current_course_id = course_id

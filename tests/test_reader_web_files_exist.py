@@ -8,6 +8,7 @@ def test_reader_web_files_exist() -> None:
         "reader_web/src/components/PdfReader.jsx",
         "reader_web/src/components/ContextMenu.jsx",
         "reader_web/src/components/PageRangeTool.jsx",
+        "reader_web/src/components/QuizAnswerModule.jsx",
     ]
 
     for file in required_files:

@@ -2,11 +2,24 @@ from __future__ import annotations
 
 """PDF question-answering page."""
 
+from collections.abc import Iterator
+
 import streamlit as st
 
 from ai_core.schemas import PDFQueryResult
 from web_ui.state import current_chapter_title, current_course_id
 from web_ui.ui_utils import render_list_or_json, safe_show_exception, to_jsonable
+
+
+def _stream_with_progress(text_stream: Iterator[str], progress_bar) -> Iterator[str]:
+    chunk_count = 0
+    progress_bar.progress(0.60, text="模型正在生成回答")
+    for text in text_stream:
+        chunk_count += 1
+        if chunk_count % 3 == 0:
+            progress_bar.progress(min(0.95, 0.60 + chunk_count * 0.015), text="模型正在生成回答")
+        yield text
+    progress_bar.progress(1.0, text="回答完成")
 
 
 def render() -> None:
@@ -24,15 +37,20 @@ def render() -> None:
             st.warning("请输入问题。")
             return
         try:
-            with st.spinner("正在检索资料并准备生成回答..."):
-                streamed_answer = st.session_state.service.stream_pdf_answer(
-                    course_id=course_id,
-                    question=question.strip(),
-                    chapter_title=chapter_title,
-                )
+            progress_bar = st.progress(0.0, text="准备提问")
+
+            def report(value: float, message: str) -> None:
+                progress_bar.progress(min(max(value, 0.0), 1.0), text=message)
+
+            streamed_answer = st.session_state.service.stream_pdf_answer(
+                course_id=course_id,
+                question=question.strip(),
+                chapter_title=chapter_title,
+                progress_callback=report,
+            )
 
             st.subheader("AI 回答")
-            answer_output = st.write_stream(streamed_answer.text_stream)
+            answer_output = st.write_stream(_stream_with_progress(streamed_answer.text_stream, progress_bar))
             if isinstance(answer_output, str):
                 answer = answer_output
             elif isinstance(answer_output, list):

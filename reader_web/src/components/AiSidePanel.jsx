@@ -1,15 +1,67 @@
+import { lazy, Suspense } from "react";
 import { AlertCircle, FileText, Loader2 } from "lucide-react";
 import { previewText } from "../utils/selection.js";
+
+const QuizAnswerModule = lazy(() => import("./QuizAnswerModule.jsx"));
 
 function renderResult(result) {
   if (!result) {
     return <p className="muted">等待一次阅读器操作或页码范围任务。</p>;
   }
   const mainText = result.answer || result.summary || result.message;
+  const quiz = extractQuiz(result, mainText);
+  if (quiz?.questions?.length) {
+    return (
+      <Suspense fallback={<div className="loading-line">正在加载答题模块...</div>}>
+        <QuizAnswerModule quiz={quiz} />
+      </Suspense>
+    );
+  }
   if (mainText) {
     return <div className="ai-answer">{renderRichText(mainText)}</div>;
   }
   return <pre className="json-block">{JSON.stringify(result, null, 2)}</pre>;
+}
+
+function extractQuiz(result, text) {
+  if (Array.isArray(result?.questions)) {
+    return result;
+  }
+  if (!text || !/questions|question_type|题/.test(text)) {
+    return null;
+  }
+
+  const candidates = [
+    text,
+    ...Array.from(text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)).map((match) => match[1])
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = parseJsonCandidate(candidate);
+    if (parsed?.questions && Array.isArray(parsed.questions)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function parseJsonCandidate(text) {
+  const trimmed = text.trim();
+  const jsonCandidates = [trimmed];
+  const objectStart = trimmed.indexOf("{");
+  const objectEnd = trimmed.lastIndexOf("}");
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    jsonCandidates.push(trimmed.slice(objectStart, objectEnd + 1));
+  }
+
+  for (const candidate of jsonCandidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Continue trying a clipped JSON candidate.
+    }
+  }
+  return null;
 }
 
 function renderRichText(text) {

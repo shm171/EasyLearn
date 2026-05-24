@@ -100,7 +100,13 @@ PDF 上下文:
 - 题目数量必须严格等于 {question_count}。
 - 难度必须遵守 {difficulty}。
 - 题型只能来自 question_types，可用类型包括 true_false、fill_blank、programming、short_answer。
-- 输出 JSON，顶层字段为 questions，每题包含 question_id、question_type、stem、answer、explanation、difficulty、reference_chunks。
+- 只输出 JSON，不要 Markdown，不要额外解释。
+- 顶层字段：quiz_title、questions。
+- 每题字段：question_id、question_type、stem、options、code_snippet、answer、explanation、difficulty、reference_chunks。
+- true_false 的 options 必须是 ["正确", "错误"]，answer 必须是 "true" 或 "false"。
+- fill_blank 的 stem 必须包含 ____，options 用 []。
+- programming 必须给出清晰任务，必要时在 code_snippet 放起始代码，answer 放参考代码字符串。
+- short_answer 用 [] 作为 options。
 - 如果上下文不足，仍输出 JSON，questions 为空，并在 message 中写：{NO_EVIDENCE_IN_RANGE}。"""
         return self._invoke(prompt)
 
@@ -111,6 +117,9 @@ PDF 上下文:
         page_context: str = "",
         question: str | None = None,
     ) -> str:
+        if action == "generate_quiz":
+            return self._selection_quiz(selected_text, page_context)
+
         action_instruction = {
             "explain": "解释选中文字：先说它是什么，再说怎么用。",
             "summarize": "总结选中文字：提炼复习要点。",
@@ -133,6 +142,27 @@ selected_text:
 - 使用 Markdown 小标题，固定结构为“## 结论 / ## 要点 / ## 示例或注意”。
 - 总长度控制在 180-300 字；要点最多 5 条。
 - 如包含代码，必须放进 ```python``` 代码块。"""
+        return self._invoke(prompt)
+
+    def _selection_quiz(self, selected_text: str, page_context: str = "") -> str:
+        prompt = f"""请根据 selected_text 生成 3 道适合编程初学者的交互式练习题。
+
+selected_text:
+{selected_text}
+
+可选页面上下文:
+{page_context or "未提供页面上下文。"}
+
+要求:
+- 只输出 JSON，不要 Markdown，不要额外解释。
+- 顶层字段：quiz_title、questions。
+- questions 必须正好 3 道。
+- 题型从 true_false、fill_blank、programming、short_answer 中选择，尽量覆盖不同题型。
+- 每题字段：question_id、question_type、stem、options、code_snippet、answer、explanation、difficulty、reference_chunks。
+- true_false 的 options 必须是 ["正确", "错误"]，answer 必须是 "true" 或 "false"。
+- fill_blank 的 stem 必须包含 ____，options 用 []。
+- programming 必须给出清晰任务，必要时在 code_snippet 放起始代码，answer 放参考代码字符串。
+- short_answer 用 [] 作为 options。"""
         return self._invoke(prompt)
 
     def explain_code(

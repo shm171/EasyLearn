@@ -2,7 +2,7 @@
 
 """Unified service API for CLI, FastAPI, and future GUI/Web clients."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import logging
 from threading import RLock, Thread
@@ -41,6 +41,7 @@ from ai_core.schemas import (
 
 
 logger = logging.getLogger(__name__)
+ProgressCallback = Callable[[float, str], None]
 
 
 @dataclass(frozen=True)
@@ -242,17 +243,24 @@ class LearningAIService:
         course_id: str,
         question: str,
         chapter_title: str | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> PDFAnswerStream:
         """Prepare a streaming PDF answer for Web clients."""
 
+        _report_progress(progress_callback, 0.08, "初始化检索器")
+        retriever = self.retriever
+        _report_progress(progress_callback, 0.18, "初始化模型")
+        model = self.model
         request = PDFQueryRequest(
             course_id=course_id,
             question=question,
             chapter_title=chapter_title,
             top_k=self.settings.top_k,
         )
-        agent = PDFReadingAgent(self.model, self.retriever)
+        _report_progress(progress_callback, 0.30, "检索资料")
+        agent = PDFReadingAgent(model, retriever)
         source_chunks, text_stream = agent.stream_answer(request)
+        _report_progress(progress_callback, 0.55, "开始生成回答")
         return PDFAnswerStream(source_chunks=source_chunks, text_stream=text_stream)
 
     def summarize_chapter(self, course_id: str, chapter_title: str) -> ChapterSummary:
@@ -269,9 +277,13 @@ class LearningAIService:
         difficulty: str,
         question_types: list[str],
         question_count: int,
+        progress_callback: ProgressCallback | None = None,
     ) -> Quiz:
         """Generate programming learning questions for a chapter."""
 
+        _report_progress(progress_callback, 0.05, "初始化模型和检索器")
+        model = self.model
+        retriever = self.retriever
         request = QuizGenerationRequest(
             course_id=course_id,
             chapter_title=chapter_title,
@@ -280,8 +292,8 @@ class LearningAIService:
             question_types=question_types,  # type: ignore[arg-type]
             question_count=question_count,
         )
-        agent = ProgrammingQuizGenerationAgent(self.model, self.retriever, self.checkpointer)
-        return agent.generate(request)
+        agent = ProgrammingQuizGenerationAgent(model, retriever)
+        return agent.generate(request, progress_callback=progress_callback)
 
     def evaluate_answers(self, quiz: Quiz | dict[str, Any], user_answers: list[UserAnswer | dict[str, Any]]) -> EvaluationReport:
         """Evaluate a quiz submission."""
@@ -607,5 +619,10 @@ def _format_source_chunks(chunks: list[SourceChunk], max_chars: int) -> str:
 
 def _new_warnings(existing: list[str], candidates: list[str]) -> list[str]:
     return [warning for warning in candidates if warning not in existing]
+
+
+def _report_progress(progress_callback: ProgressCallback | None, value: float, message: str) -> None:
+    if progress_callback is not None:
+        progress_callback(value, message)
 
 
