@@ -8,8 +8,10 @@ from ai_core.schemas import ChapterSummary, ChapterSummaryRequest
 
 
 SUMMARY_SYSTEM_PROMPT = """You are a programming course chapter summary assistant.
-Create exam/interview/practice oriented summaries for students. Focus on concepts, terms, code patterns,
-common mistakes, typical question types, and study suggestions. Do not invent content outside the evidence."""
+Use PDF evidence as course context, but build a complete student-facing programming summary.
+PDF extraction can be noisy, so ignore table-of-contents, preface, copyright, and unrelated overview text.
+When evidence is partial, use reliable programming knowledge to fill the teaching scaffold.
+Do not cite source chunks for claims that are not supported by those chunks."""
 
 
 class ChapterSummaryAgent(BaseLearningAgent):
@@ -30,23 +32,31 @@ class ChapterSummaryAgent(BaseLearningAgent):
     def summarize(self, request: ChapterSummaryRequest) -> ChapterSummary:
         """Generate a structured summary for a chapter."""
 
+        summary_query = (
+            f"{request.chapter_title} core concepts syntax structure code examples "
+            "common mistakes practice questions"
+        )
         chunks = self.retriever.retrieve(
-            query=f"{request.chapter_title} core concepts code examples common mistakes",
+            query=summary_query,
             course_id=request.course_id,
             chapter_title=request.chapter_title,
-            top_k=12,
+            top_k=14,
         )
-        if not chunks:
-            raise ValueError("\u8d44\u6599\u4e2d\u672a\u627e\u5230\u660e\u786e\u4f9d\u636e. Please import this chapter PDF first.")
 
         context = "\n\n".join(f"[{chunk.chunk_id} | page {chunk.page_number}]\n{chunk.content[:1800]}" for chunk in chunks)
         prompt = f"""Course ID: {request.course_id}
 Chapter title: {request.chapter_title}
 
 PDF evidence:
-{context}
+{context or "No reliable retrieved evidence was found."}
 
-Return a ChapterSummary. source_chunks must contain the chunk IDs you used."""
+Return a ChapterSummary.
+Rules:
+- learning_goals should explain what the student should be able to do.
+- key_concepts and important_terms should be complete enough for review, not just copied fragments.
+- code_examples should include concise examples when the chapter topic naturally requires syntax.
+- common_mistakes should be practical programming mistakes.
+- source_chunks must contain only chunk IDs that directly informed the summary. Use an empty list if no reliable chunks were found."""
         result = self.invoke(prompt)
         if isinstance(result, ChapterSummary):
             result.source_chunks = result.source_chunks or [chunk.chunk_id for chunk in chunks]

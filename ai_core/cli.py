@@ -3,11 +3,11 @@
 """Command-line debugging interface for the AI learning core."""
 
 from pathlib import Path
+import sys
 from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.json import JSON
 from rich.table import Table
 
 from ai_core.config import get_settings
@@ -88,7 +88,7 @@ def ingest(
 
     service = LearningAIService()
     result = service.ingest_pdf(course_id=course_id, file_path=file_path, chapter_title=chapter_title)
-    console.print(JSON(result.model_dump_json(ensure_ascii=False)))
+    _print_model_json(result)
 
 
 @app.command()
@@ -112,7 +112,7 @@ def search(
             chunk.chunk_id,
             f"{chunk.score:.4f}" if chunk.score is not None else "",
             str(chunk.page_number or ""),
-            chunk.content[:240].replace("\n", " "),
+            _safe_console_text(chunk.content[:240].replace("\n", " ")),
         )
     console.print(table)
 
@@ -127,7 +127,7 @@ def ask(
 
     service = LearningAIService()
     result = service.ask_pdf(course_id=course_id, question=question, chapter_title=chapter_title)
-    console.print(JSON(result.model_dump_json(ensure_ascii=False)))
+    _print_model_json(result)
 
 
 @app.command()
@@ -193,7 +193,12 @@ def _print_or_write(content: str, output: str | None) -> None:
         output_path.write_text(content, encoding="utf-8")
         console.print(f"Saved to {output_path}")
     else:
-        console.print(JSON(content))
+        console.print(_safe_console_text(content))
+
+
+def _print_model_json(model: object) -> None:
+    content = model.model_dump_json(indent=2, ensure_ascii=False)  # type: ignore[attr-defined]
+    console.print(_safe_console_text(content))
 
 
 def _api_key_status(provider: str, embedding: bool = False) -> str:
@@ -210,6 +215,13 @@ def _api_key_status(provider: str, embedding: bool = False) -> str:
             return "Unsupported for embeddings; use huggingface, openai, or gemini"
         return "OK" if settings.deepseek_api_key else "Missing DEEPSEEK_API_KEY"
     return "Unsupported provider"
+
+
+def _safe_console_text(text: str) -> str:
+    """Replace characters the active Windows console encoding cannot print."""
+
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return text.encode(encoding, errors="replace").decode(encoding, errors="replace")
 
 
 if __name__ == "__main__":
