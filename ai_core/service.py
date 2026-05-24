@@ -233,7 +233,7 @@ class LearningAIService:
             course_id=course_id,
             question=question,
             chapter_title=chapter_title,
-            top_k=self.settings.top_k,
+            top_k=_fast_top_k(self.settings.top_k),
         )
         agent = PDFReadingAgent(self.model, self.retriever)
         return agent.answer(request)
@@ -255,7 +255,7 @@ class LearningAIService:
             course_id=course_id,
             question=question,
             chapter_title=chapter_title,
-            top_k=self.settings.top_k,
+            top_k=_fast_top_k(self.settings.top_k),
         )
         _report_progress(progress_callback, 0.30, "检索资料")
         agent = PDFReadingAgent(model, retriever)
@@ -263,11 +263,20 @@ class LearningAIService:
         _report_progress(progress_callback, 0.55, "开始生成回答")
         return PDFAnswerStream(source_chunks=source_chunks, text_stream=text_stream)
 
-    def summarize_chapter(self, course_id: str, chapter_title: str) -> ChapterSummary:
+    def summarize_chapter(
+        self,
+        course_id: str,
+        chapter_title: str,
+        progress_callback: ProgressCallback | None = None,
+    ) -> ChapterSummary:
         """Generate a structured summary for a course chapter."""
 
-        agent = ChapterSummaryAgent(self.model, self.retriever, self.checkpointer)
-        return agent.summarize(ChapterSummaryRequest(course_id=course_id, chapter_title=chapter_title))
+        _report_progress(progress_callback, 0.06, "初始化模型和检索器")
+        agent = ChapterSummaryAgent(self.model, self.retriever)
+        return agent.summarize(
+            ChapterSummaryRequest(course_id=course_id, chapter_title=chapter_title),
+            progress_callback=progress_callback,
+        )
 
     def generate_programming_quiz(
         self,
@@ -345,18 +354,18 @@ class LearningAIService:
             page_start=page_start,
             page_end=page_end,
             chapter_title=chapter_title,
-            top_k=self.settings.top_k,
+            top_k=_fast_top_k(self.settings.top_k),
         )
         warnings = list(self.range_retriever.warnings)
         if chunks:
-            context = _format_source_chunks(chunks, self.settings.rag_context_max_chars)
+            context = _format_source_chunks(chunks, _context_limit(self.settings.rag_context_max_chars, 3600))
         else:
             context = self.range_retriever.build_context_from_range(
                 course_id=course_id,
                 page_start=page_start,
                 page_end=page_end,
                 chapter_title=chapter_title,
-                max_chars=self.settings.rag_context_max_chars,
+                max_chars=_context_limit(self.settings.rag_context_max_chars, 2600),
             )
             warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
             chunks = self.range_retriever.get_chunks_by_page_range(
@@ -364,7 +373,7 @@ class LearningAIService:
                 page_start=page_start,
                 page_end=page_end,
                 chapter_title=chapter_title,
-                limit=self.settings.top_k,
+                limit=_fast_top_k(self.settings.top_k),
             )
             warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
 
@@ -395,9 +404,21 @@ class LearningAIService:
         """Summarize a specified page range."""
 
         _validate_page_range_values(page_start, page_end)
-        chunks = self.range_retriever.get_chunks_by_page_range(course_id, page_start, page_end, chapter_title)
+        chunks = self.range_retriever.search_in_range(
+            course_id=course_id,
+            query="核心概念 语法 示例 易错点 复习总结",
+            page_start=page_start,
+            page_end=page_end,
+            chapter_title=chapter_title,
+            top_k=_summary_top_k(self.settings.top_k),
+        )
         warnings = list(self.range_retriever.warnings)
-        context = _format_source_chunks(chunks, self.settings.rag_context_max_chars)
+        if not chunks:
+            chunks = self.range_retriever.get_chunks_by_page_range(
+                course_id, page_start, page_end, chapter_title, limit=_summary_top_k(self.settings.top_k)
+            )
+            warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
+        context = _format_source_chunks(chunks, _context_limit(self.settings.rag_context_max_chars, 4200))
         if not context:
             summary = "当前页码范围内未找到明确依据。"
         else:
@@ -423,9 +444,21 @@ class LearningAIService:
         """Generate programming quiz from a page range."""
 
         _validate_page_range_values(page_start, page_end)
-        chunks = self.range_retriever.get_chunks_by_page_range(course_id, page_start, page_end, chapter_title)
+        chunks = self.range_retriever.search_in_range(
+            course_id=course_id,
+            query=f"{programming_language} syntax examples practice questions exercises",
+            page_start=page_start,
+            page_end=page_end,
+            chapter_title=chapter_title,
+            top_k=_quiz_range_top_k(question_count),
+        )
         warnings = list(self.range_retriever.warnings)
-        context = _format_source_chunks(chunks, max(self.settings.rag_context_max_chars, 9000))
+        if not chunks:
+            chunks = self.range_retriever.get_chunks_by_page_range(
+                course_id, page_start, page_end, chapter_title, limit=_quiz_range_top_k(question_count)
+            )
+            warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
+        context = _format_source_chunks(chunks, _quiz_context_limit(self.settings.rag_context_max_chars, question_count))
         if not context:
             quiz_text = '{"message":"当前页码范围内未找到明确依据。","questions":[]}'
         else:
@@ -461,10 +494,10 @@ class LearningAIService:
             page_start=page_number,
             page_end=page_number,
             chapter_title=chapter_title,
-            limit=4,
+            limit=3,
         )
         warnings = list(self.range_retriever.warnings)
-        context = _format_source_chunks(chunks, max(1200, min(self.settings.rag_context_max_chars, 2600)))
+        context = _format_source_chunks(chunks, max(1000, min(self.settings.rag_context_max_chars, 2200)))
         if not context:
             answer = "当前页码范围内未找到明确依据。"
         else:
@@ -553,9 +586,21 @@ class LearningAIService:
         """Extract key points from a specified page range."""
 
         _validate_page_range_values(page_start, page_end)
-        chunks = self.range_retriever.get_chunks_by_page_range(course_id, page_start, page_end, chapter_title)
+        chunks = self.range_retriever.search_in_range(
+            course_id=course_id,
+            query="关键概念 语法 示例 易错点",
+            page_start=page_start,
+            page_end=page_end,
+            chapter_title=chapter_title,
+            top_k=_summary_top_k(self.settings.top_k),
+        )
         warnings = list(self.range_retriever.warnings)
-        context = _format_source_chunks(chunks, self.settings.rag_context_max_chars)
+        if not chunks:
+            chunks = self.range_retriever.get_chunks_by_page_range(
+                course_id, page_start, page_end, chapter_title, limit=_summary_top_k(self.settings.top_k)
+            )
+            warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
+        context = _format_source_chunks(chunks, _context_limit(self.settings.rag_context_max_chars, 3600))
         if not context:
             answer = "当前页码范围内未找到明确依据。"
         else:
@@ -615,6 +660,27 @@ def _format_source_chunks(chunks: list[SourceChunk], max_chars: int) -> str:
         sections.append(section)
         used_chars += len(section) + 2
     return "\n\n".join(sections)
+
+
+def _fast_top_k(configured_top_k: int) -> int:
+    return max(2, min(configured_top_k, 4))
+
+
+def _summary_top_k(configured_top_k: int) -> int:
+    return max(4, min(max(configured_top_k, 6), 8))
+
+
+def _quiz_range_top_k(question_count: int) -> int:
+    return max(4, min(question_count + 1, 8))
+
+
+def _context_limit(configured_limit: int, hard_limit: int) -> int:
+    return max(1200, min(configured_limit, hard_limit))
+
+
+def _quiz_context_limit(configured_limit: int, question_count: int) -> int:
+    desired = max(2400, min(4800, 2200 + question_count * 350))
+    return _context_limit(configured_limit, desired)
 
 
 def _new_warnings(existing: list[str], candidates: list[str]) -> list[str]:

@@ -31,13 +31,14 @@ course_id: {course_id}
 问题: {question}
 
 PDF 上下文:
-{context or NO_EVIDENCE_IN_RANGE}
+{_clip_prompt_text(context, 3600) or NO_EVIDENCE_IN_RANGE}
 
 要求:
 - 只能使用上述上下文回答，不要编造 PDF 中没有的内容。
 - 如果上下文不足，明确说：{NO_EVIDENCE_IN_RANGE}
 - 输出必须简洁、有层次：先给“## 结论”，再给“## 要点”，必要时给“## 示例”。
 - 要点最多 5 条；能用代码说明时，代码必须放在 ```{_language_hint(question)}``` 代码块中。
+- 总长度控制在 300-500 字，避免泛泛铺开。
 - 涉及具体依据时引用页码或 chunk ID。"""
         return self._invoke(prompt)
 
@@ -48,13 +49,13 @@ course_id: {course_id}
 允许页码范围: {page_start}-{page_end}
 
 PDF 上下文:
-{context or NO_EVIDENCE_IN_RANGE}
+{_clip_prompt_text(context, 4200) or NO_EVIDENCE_IN_RANGE}
 
 要求:
 - 只基于上述上下文总结。
 - 如果上下文不足，明确说：{NO_EVIDENCE_IN_RANGE}
 - 用 Markdown 分成“## 核心内容 / ## 关键概念 / ## 易错点 / ## 复习建议”。
-- 每节最多 5 条，避免长段落。"""
+- 每节最多 4 条，每条一句话，避免长段落。"""
         return self._invoke(prompt)
 
     def key_points_range(self, course_id: str, page_start: int, page_end: int, context: str) -> str:
@@ -64,13 +65,13 @@ course_id: {course_id}
 允许页码范围: {page_start}-{page_end}
 
 PDF 上下文:
-{context or NO_EVIDENCE_IN_RANGE}
+{_clip_prompt_text(context, 3600) or NO_EVIDENCE_IN_RANGE}
 
 要求:
 - 只列出上下文中有依据的重点。
 - 如果上下文不足，明确说：{NO_EVIDENCE_IN_RANGE}
 - 按“## 概念 / ## 语法 / ## 示例 / ## 易错点”组织。
-- 每节最多 5 条，句子短。"""
+- 每节最多 4 条，句子短。"""
         return self._invoke(prompt)
 
     def quiz_range(
@@ -94,7 +95,7 @@ question_types: {question_types}
 question_count: {question_count}
 
 PDF 上下文:
-{context or NO_EVIDENCE_IN_RANGE}
+{_clip_prompt_text(context, 4200) or NO_EVIDENCE_IN_RANGE}
 
 要求:
 - 题目数量必须严格等于 {question_count}。
@@ -107,6 +108,7 @@ PDF 上下文:
 - fill_blank 的 stem 必须包含 ____，options 用 []。
 - programming 必须给出清晰任务，必要时在 code_snippet 放起始代码，answer 放参考代码字符串。
 - short_answer 用 [] 作为 options。
+- stem 不超过 80 字，explanation 只写 1 句。
 - 如果上下文不足，仍输出 JSON，questions 为空，并在 message 中写：{NO_EVIDENCE_IN_RANGE}。"""
         return self._invoke(prompt)
 
@@ -131,10 +133,10 @@ PDF 上下文:
 任务: {action_instruction}
 
 selected_text:
-{selected_text}
+{_clip_prompt_text(selected_text, 1800)}
 
 可选页面上下文:
-{page_context or "未提供页面上下文。"}
+{_clip_prompt_text(page_context, 900) or "未提供页面上下文。"}
 
 要求:
 - 优先基于 selected_text 回答，页面上下文只能补充解释。
@@ -148,10 +150,10 @@ selected_text:
         prompt = f"""请根据 selected_text 生成 3 道适合编程初学者的交互式练习题。
 
 selected_text:
-{selected_text}
+{_clip_prompt_text(selected_text, 1600)}
 
 可选页面上下文:
-{page_context or "未提供页面上下文。"}
+{_clip_prompt_text(page_context, 800) or "未提供页面上下文。"}
 
 要求:
 - 只输出 JSON，不要 Markdown，不要额外解释。
@@ -162,7 +164,8 @@ selected_text:
 - true_false 的 options 必须是 ["正确", "错误"]，answer 必须是 "true" 或 "false"。
 - fill_blank 的 stem 必须包含 ____，options 用 []。
 - programming 必须给出清晰任务，必要时在 code_snippet 放起始代码，answer 放参考代码字符串。
-- short_answer 用 [] 作为 options。"""
+- short_answer 用 [] 作为 options。
+- stem 不超过 80 字，explanation 只写 1 句。"""
         return self._invoke(prompt)
 
     def explain_code(
@@ -175,11 +178,11 @@ selected_text:
 
 选中代码:
 ```{programming_language}
-{selected_text}
+{_clip_prompt_text(selected_text, 1800)}
 ```
 
 可选页面上下文:
-{page_context or "未提供页面上下文。"}
+{_clip_prompt_text(page_context, 900) or "未提供页面上下文。"}
 
 要求:
 - 用 Markdown 固定结构：“## 作用 / ## 关键语句 / ## 运行行为 / ## 常见错误”。
@@ -203,3 +206,10 @@ def _language_hint(text: str) -> str:
     if "c++" in lowered or "cpp" in lowered:
         return "cpp"
     return "text"
+
+
+def _clip_prompt_text(text: str, max_chars: int) -> str:
+    stripped = (text or "").strip()
+    if len(stripped) <= max_chars:
+        return stripped
+    return stripped[: max(0, max_chars - 4)].rstrip() + "\n..."

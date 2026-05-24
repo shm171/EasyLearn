@@ -2,6 +2,12 @@ from __future__ import annotations
 
 """Chapter summary page."""
 
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from queue import Empty, Queue
+from time import monotonic, sleep
+from typing import TypeVar
+
 import streamlit as st
 
 from web_ui.state import current_chapter_title, current_course_id
@@ -18,6 +24,8 @@ SUMMARY_SECTIONS = [
     ("学习建议", "study_suggestions"),
     ("来源", "source_chunks"),
 ]
+ProgressEvent = tuple[float, str]
+T = TypeVar("T")
 
 
 def _display_summary(data: dict) -> None:
@@ -31,6 +39,46 @@ def _display_summary(data: dict) -> None:
         st.json(data, expanded=True)
 
 
+def _run_with_progress(task: Callable[[Callable[[float, str], None]], T], fallback_seconds: float = 8.0) -> T:
+    progress_events: Queue[ProgressEvent] = Queue()
+    progress_bar = st.progress(0.0, text="准备生成章节总结")
+    started_at = monotonic()
+    current_value = 0.0
+
+    def report(value: float, message: str) -> None:
+        progress_events.put((value, message))
+
+    def drain_events() -> None:
+        nonlocal current_value
+        while True:
+            try:
+                value, message = progress_events.get_nowait()
+            except Empty:
+                break
+            current_value = max(current_value, min(max(value, 0.0), 1.0))
+            progress_bar.progress(current_value, text=message)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future: Future[T] = executor.submit(task, report)
+        while not future.done():
+            drain_events()
+            elapsed = monotonic() - started_at
+            target_value = min(0.88, 0.08 + (elapsed / fallback_seconds) * 0.72)
+            if target_value > current_value + 0.015:
+                current_value = target_value
+                progress_bar.progress(current_value, text="模型正在生成章节总结")
+            sleep(0.1)
+        drain_events()
+        try:
+            result = future.result()
+        except Exception:
+            progress_bar.progress(1.0, text="生成失败")
+            raise
+
+    progress_bar.progress(1.0, text="章节总结完成")
+    return result
+
+
 def render() -> None:
     """Render the chapter summary page."""
 
@@ -41,8 +89,16 @@ def render() -> None:
 
     if st.button("生成总结", type="primary"):
         try:
-            with st.spinner("正在生成章节总结..."):
-                summary = st.session_state.service.summarize_chapter(course_id=course_id, chapter_title=chapter_title)
+            service = st.session_state.service
+
+            def summarize(report: Callable[[float, str], None]):
+                return service.summarize_chapter(
+                    course_id=course_id,
+                    chapter_title=chapter_title,
+                    progress_callback=report,
+                )
+
+            summary = _run_with_progress(summarize)
             data = to_jsonable(summary)
             st.session_state.last_summary = summary
             st.session_state.current_course_id = course_id

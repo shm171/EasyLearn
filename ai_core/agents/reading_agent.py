@@ -19,7 +19,7 @@ First judge whether retrieved evidence actually supports the student's question.
 When evidence is relevant, answer mainly from the material and cite chunk IDs for supported points.
 When evidence is partial, you may add reliable programming knowledge, but clearly mark it as supplemental.
 When evidence is missing or off-topic, do not pretend the answer came from the course material; say that the material did not provide a clear basis, then give only a brief general supplement.
-Never cite a chunk for a claim that the chunk does not support. Ignore table-of-contents, preface, copyright, and unrelated overview text."""
+Never cite a chunk for a claim that the chunk does not support. Keep answers concise and layered."""
 NO_EVIDENCE_MESSAGE = "资料中未找到明确依据"
 
 
@@ -82,19 +82,19 @@ Retrieved evidence:
 Answer requirements:
 - Answer in the same language as the question when possible.
 - Start with one short sentence describing the material status: "资料依据：已找到相关资料" or "资料依据：资料中未找到明确依据".
-- If material evidence is relevant, give a direct answer first, then a clear structure or syntax template when the question asks how something is defined.
-- For Python class questions, include the class header, attributes, methods, __init__, self, instance creation, and a minimal example when helpful.
+- If material evidence is relevant, use "## 结论 / ## 要点 / ## 示例" and keep the answer within 300-500 Chinese characters unless code is necessary.
+- When the question asks for syntax, include one compact syntax template or minimal example.
 - If no reliable evidence is provided, use exactly two short sections:
   1. "资料依据：资料中未找到明确依据"
-  2. "通用补充：" followed by at most 5 short bullet points. Do not include code blocks unless the student explicitly asks for code.
+  2. "通用补充：" followed by at most 4 short bullet points. Do not include code blocks unless the student explicitly asks for code.
 - If the retrieved material is weak but relevant, say "资料中没有完整展开，下面给出通用补充" and keep the supplement concise. Do not make it look like a course-material answer.
 - Include source chunk IDs only for points directly supported by retrieved evidence."""
 
 
 def _format_chunks(chunks: list[SourceChunk]) -> str:
     settings = get_settings()
-    chunk_char_limit = max(200, settings.rag_chunk_max_chars)
-    total_char_limit = max(chunk_char_limit, settings.rag_context_max_chars)
+    chunk_char_limit = max(350, min(settings.rag_chunk_max_chars, 900))
+    total_char_limit = max(chunk_char_limit, min(settings.rag_context_max_chars, 3600))
     sections: list[str] = []
     used_chars = 0
 

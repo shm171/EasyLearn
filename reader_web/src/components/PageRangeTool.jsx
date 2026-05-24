@@ -45,7 +45,7 @@ export default function PageRangeTool({ courseId, currentPage = 1, totalPages = 
       page_start: Number(pageStart),
       page_end: Number(pageEnd)
     };
-    onStart(taskLabel(task));
+    onStart(taskLabel(task), task);
     try {
       let result;
       if (task === "ask") {

@@ -560,6 +560,49 @@ textarea {
   gap: 8px;
 }
 
+.ai-progress {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #d7e7e1;
+  border-radius: 8px;
+  background: #f4faf8;
+}
+
+.ai-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #176b5b;
+  font-size: 13px;
+}
+
+.ai-progress-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-progress-head strong {
+  flex: 0 0 auto;
+}
+
+.ai-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dce8e4;
+}
+
+.ai-progress-track div {
+  height: 100%;
+  border-radius: inherit;
+  background: #176b5b;
+  transition: width 260ms ease;
+}
+
 .error-box {
   background: #fff0ed;
   color: #b42318;

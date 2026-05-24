@@ -23,6 +23,22 @@ function renderResult(result) {
   return <pre className="json-block">{JSON.stringify(result, null, 2)}</pre>;
 }
 
+function ProgressMeter({ progress }) {
+  const value = Math.max(0, Math.min(1, progress?.value ?? 0.08));
+  const percent = Math.round(value * 100);
+  return (
+    <div className="ai-progress">
+      <div className="ai-progress-head">
+        <span>{progress?.message || "AI 正在处理..."}</span>
+        <strong>{percent}%</strong>
+      </div>
+      <div className="ai-progress-track" role="progressbar" aria-label="AI 生成进度" aria-valuenow={percent}>
+        <div style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function extractQuiz(result, text) {
   if (Array.isArray(result?.questions)) {
     return result;
@@ -168,10 +184,13 @@ export default function AiSidePanel({ panel }) {
 
       <div className="panel-section result-section">
         {panel.loading ? (
-          <div className="loading-line">
-            <Loader2 size={18} className="spin" />
-            <span>AI 正在处理...</span>
-          </div>
+          <>
+            <div className="loading-line">
+              <Loader2 size={18} className="spin" />
+              <span>AI 正在处理...</span>
+            </div>
+            <ProgressMeter progress={panel.progress} />
+          </>
         ) : null}
         {panel.error ? (
           <div className="error-box">
