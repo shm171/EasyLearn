@@ -34,6 +34,19 @@ uvicorn api.main:app --reload
 
 打开 `http://127.0.0.1:8000/docs` 调试接口。
 
+第三阶段新增接口包括：
+
+- `GET /reader/materials`
+- `POST /reader/materials/import`
+- `GET /reader/pdf/{course_id}`
+- `POST /reader/current-page/ask`
+- `POST /reader/selection/ask`
+- `POST /reader/selection/explain-code`
+- `POST /range/ask`
+- `POST /range/summary`
+- `POST /range/quiz`
+- `POST /range/key-points`
+
 ## 第二阶段：启动 Streamlit 本地 Web 调试界面
 
 ### 1. 激活虚拟环境
@@ -57,6 +70,45 @@ streamlit run web_ui/app.py
 ### 4. 浏览器访问
 
 Streamlit 会自动打开浏览器。如果没有自动打开，请根据终端提示访问本地地址。
+
+## 第三阶段：PDF 阅读器 GUI + 页码范围检索器
+
+### 1. 启动后端
+
+```powershell
+cd C:\Users\35753\Documents\智能体学习
+.\.venv\Scripts\activate
+uvicorn api.main:app --reload
+```
+
+后端地址：`http://127.0.0.1:8000`
+
+接口文档：`http://127.0.0.1:8000/docs`
+
+### 2. 启动 React 阅读器
+
+```powershell
+cd C:\Users\35753\Documents\智能体学习\reader_web
+npm install
+npm run dev
+```
+
+前端地址：`http://127.0.0.1:5173`
+
+### 3. 使用流程
+
+```text
+1. 在阅读器顶部点击“导入本地 PDF”，或确认已经导入 PDF，例如 python_001 / materials/1.pdf。
+2. 启动 FastAPI 后端。
+3. 启动 React 阅读器前端。
+4. 在前端选择 python_001，或直接导入后打开。
+5. 打开 PDF 后翻页，确认当前页码变化。
+6. 选中文字并右键，选择解释、总结、解释代码或生成练习。
+7. 使用页码范围工具输入 page_start 和 page_end。
+8. 测试范围问答、范围总结、范围出题和提取重点。
+```
+
+说明：PDF 阅读器只会根据 `data/materials_registry.json` 中注册的材料读取 `materials/` 目录下的 PDF，避免任意本地路径被前端访问。导入 PDF 成功后，`LearningAIService.ingest_pdf()` 会自动尝试注册该材料。
 
 ## Python 调用
 
@@ -85,4 +137,4 @@ report = service.evaluate_answers(
 
 ## 阶段边界
 
-当前阶段只支持文本型 PDF，不支持 OCR、GUI、PPT、docx、txt、md 或代码图形化调试器。
+当前阶段只支持文本型 PDF，不支持 OCR、PPT、docx、txt、md、账号系统、云端同步或代码图形化调试器。

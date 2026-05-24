@@ -3,8 +3,12 @@
 """FastAPI entrypoint for the programming learning AI core."""
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from api.dependencies import get_learning_service
+from api.reader_routes import router as reader_router
+from api.range_routes import router as range_router
 from ai_core.schemas import (
     ChapterSummary,
     ChapterSummaryRequest,
@@ -19,11 +23,19 @@ from ai_core.schemas import (
     TutorChatResponse,
     UserAnswer,
 )
-from ai_core.service import LearningAIService
 
 
 app = FastAPI(title="AI Programming Learning Core", version="0.1.0")
-service = LearningAIService()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(reader_router)
+app.include_router(range_router)
+service = get_learning_service()
 
 
 class QuizEvaluationPayload(BaseModel):

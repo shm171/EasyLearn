@@ -4,19 +4,23 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+import logging
 from threading import RLock, Thread
 from time import perf_counter
 from typing import Any
 
+from ai_core.agents.range_agent import RangeLearningAgent
 from ai_core.agents.evaluator_agent import LearningEvaluatorAgent
 from ai_core.agents.quiz_agent import ProgrammingQuizGenerationAgent
 from ai_core.agents.reading_agent import PDFReadingAgent
 from ai_core.agents.summary_agent import ChapterSummaryAgent
 from ai_core.agents.tutor_agent import ProgrammingTutorAgent
 from ai_core.config import get_settings
+from ai_core.materials_registry import MaterialsRegistry
 from ai_core.memory import create_memory_checkpointer
 from ai_core.model_factory import get_chat_model
 from ai_core.rag.pdf_loader import PDFLoaderManager
+from ai_core.rag.range_retriever import NO_RANGE_CONTENT_MESSAGE, RangeRetriever
 from ai_core.rag.retriever import PDFRetriever
 from ai_core.rag.text_splitter import PDFTextSplitter
 from ai_core.rag.vector_store import DocumentKnowledgeBase
@@ -34,6 +38,9 @@ from ai_core.schemas import (
     TutorChatResponse,
     UserAnswer,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -55,6 +62,8 @@ class LearningAIService:
         self.text_splitter = PDFTextSplitter()
         self._knowledge_base: DocumentKnowledgeBase | None = None
         self._retriever: PDFRetriever | None = None
+        self._range_retriever: RangeRetriever | None = None
+        self._materials_registry: MaterialsRegistry | None = None
         self._model: Any | None = None
         self._checkpointer: Any | None = None
         self._init_lock = RLock()
@@ -79,6 +88,24 @@ class LearningAIService:
             if self._retriever is None:
                 self._retriever = PDFRetriever(self.knowledge_base)
             return self._retriever
+
+    @property
+    def range_retriever(self) -> RangeRetriever:
+        """Return the lazily initialized page-range retriever."""
+
+        with self._init_lock:
+            if self._range_retriever is None:
+                self._range_retriever = RangeRetriever(self.knowledge_base)
+            return self._range_retriever
+
+    @property
+    def materials_registry(self) -> MaterialsRegistry:
+        """Return the lazily initialized imported-materials registry."""
+
+        with self._init_lock:
+            if self._materials_registry is None:
+                self._materials_registry = MaterialsRegistry()
+            return self._materials_registry
 
     @property
     def model(self) -> Any:
@@ -163,7 +190,7 @@ class LearningAIService:
         chunks = self.text_splitter.split_documents(documents)
         self.knowledge_base.add_documents(chunks)
         first_meta = documents[0].metadata
-        return PDFIngestResult(
+        result = PDFIngestResult(
             course_id=course_id,
             file_path=file_path,
             file_name=str(first_meta.get("file_name", "")),
@@ -172,6 +199,16 @@ class LearningAIService:
             chunk_count=len(chunks),
             message="PDF imported successfully.",
         )
+        try:
+            self.materials_registry.register_pdf(
+                course_id=course_id,
+                file_path=file_path,
+                chapter_title=chapter_title,
+                page_count=result.page_count,
+            )
+        except Exception as exc:
+            logger.warning("PDF imported but was not registered for the reader: %s", exc)
+        return result
 
     def ask_pdf(self, course_id: str, question: str, chapter_title: str | None = None) -> PDFQueryResult:
         """Ask a question over imported PDF materials."""
@@ -253,5 +290,307 @@ class LearningAIService:
         request = TutorChatRequest(user_message=user_message, course_id=course_id, thread_id=thread_id)
         agent = ProgrammingTutorAgent(self.model, self.retriever, self.checkpointer)
         return agent.chat(request)
+
+    def list_materials(self) -> list[dict[str, Any]]:
+        """List imported PDF materials."""
+
+        return self.materials_registry.list_materials()
+
+    def get_material(self, course_id: str) -> dict[str, Any]:
+        """Get PDF material metadata by course_id."""
+
+        return self.materials_registry.get_material(course_id)
+
+    def ask_pdf_in_range(
+        self,
+        course_id: str,
+        question: str,
+        page_start: int,
+        page_end: int,
+        chapter_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Ask AI using only chunks from a page range."""
+
+        _validate_page_range_values(page_start, page_end)
+        chunks = self.range_retriever.search_in_range(
+            course_id=course_id,
+            query=question,
+            page_start=page_start,
+            page_end=page_end,
+            chapter_title=chapter_title,
+            top_k=self.settings.top_k,
+        )
+        warnings = list(self.range_retriever.warnings)
+        if chunks:
+            context = _format_source_chunks(chunks, self.settings.rag_context_max_chars)
+        else:
+            context = self.range_retriever.build_context_from_range(
+                course_id=course_id,
+                page_start=page_start,
+                page_end=page_end,
+                chapter_title=chapter_title,
+                max_chars=self.settings.rag_context_max_chars,
+            )
+            warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
+            chunks = self.range_retriever.get_chunks_by_page_range(
+                course_id=course_id,
+                page_start=page_start,
+                page_end=page_end,
+                chapter_title=chapter_title,
+                limit=self.settings.top_k,
+            )
+            warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
+
+        if context == NO_RANGE_CONTENT_MESSAGE:
+            answer = "当前页码范围内未找到明确依据。"
+        else:
+            answer = RangeLearningAgent(self.model).answer_range(
+                course_id=course_id,
+                question=question,
+                page_start=page_start,
+                page_end=page_end,
+                context=context,
+            )
+        return {
+            "answer": answer,
+            "source_chunks": _dump_chunks(chunks),
+            "page_range": {"page_start": page_start, "page_end": page_end},
+            "warnings": warnings,
+        }
+
+    def summarize_range(
+        self,
+        course_id: str,
+        page_start: int,
+        page_end: int,
+        chapter_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Summarize a specified page range."""
+
+        _validate_page_range_values(page_start, page_end)
+        chunks = self.range_retriever.get_chunks_by_page_range(course_id, page_start, page_end, chapter_title)
+        warnings = list(self.range_retriever.warnings)
+        context = _format_source_chunks(chunks, self.settings.rag_context_max_chars)
+        if not context:
+            summary = "当前页码范围内未找到明确依据。"
+        else:
+            summary = RangeLearningAgent(self.model).summarize_range(course_id, page_start, page_end, context)
+        return {
+            "summary": summary,
+            "source_chunks": _dump_chunks(chunks),
+            "page_range": {"page_start": page_start, "page_end": page_end},
+            "warnings": warnings,
+        }
+
+    def generate_quiz_from_range(
+        self,
+        course_id: str,
+        page_start: int,
+        page_end: int,
+        programming_language: str,
+        difficulty: str,
+        question_types: list[str],
+        question_count: int,
+        chapter_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate programming quiz from a page range."""
+
+        _validate_page_range_values(page_start, page_end)
+        chunks = self.range_retriever.get_chunks_by_page_range(course_id, page_start, page_end, chapter_title)
+        warnings = list(self.range_retriever.warnings)
+        context = _format_source_chunks(chunks, max(self.settings.rag_context_max_chars, 9000))
+        if not context:
+            quiz_text = '{"message":"当前页码范围内未找到明确依据。","questions":[]}'
+        else:
+            quiz_text = RangeLearningAgent(self.model).quiz_range(
+                course_id=course_id,
+                page_start=page_start,
+                page_end=page_end,
+                context=context,
+                programming_language=programming_language,
+                difficulty=difficulty,
+                question_types=question_types,
+                question_count=question_count,
+            )
+        return {
+            "answer": quiz_text,
+            "source_chunks": _dump_chunks(chunks),
+            "page_range": {"page_start": page_start, "page_end": page_end},
+            "warnings": warnings,
+        }
+
+    def ask_current_page(
+        self,
+        course_id: str,
+        question: str,
+        page_number: int,
+        chapter_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Ask AI using current page as primary context."""
+
+        _validate_page_range_values(page_number, page_number)
+        chunks = self.range_retriever.get_chunks_by_page_range(
+            course_id=course_id,
+            page_start=page_number,
+            page_end=page_number,
+            chapter_title=chapter_title,
+            limit=4,
+        )
+        warnings = list(self.range_retriever.warnings)
+        context = _format_source_chunks(chunks, max(1200, min(self.settings.rag_context_max_chars, 2600)))
+        if not context:
+            answer = "当前页码范围内未找到明确依据。"
+        else:
+            answer = RangeLearningAgent(self.model).answer_range(
+                course_id=course_id,
+                question=question,
+                page_start=page_number,
+                page_end=page_number,
+                context=context,
+            )
+        return {
+            "answer": answer,
+            "source_chunks": _dump_chunks(chunks),
+            "page_range": {"page_start": page_number, "page_end": page_number},
+            "page_number": page_number,
+            "warnings": warnings,
+        }
+
+    def explain_selected_text(
+        self,
+        course_id: str,
+        selected_text: str,
+        page_number: int | None = None,
+        chapter_title: str | None = None,
+        action: str = "explain",
+        question: str | None = None,
+    ) -> dict[str, Any]:
+        """Explain, summarize, or analyze selected text."""
+
+        page_context, chunks, warnings = self._selection_page_context(
+            course_id,
+            page_number,
+            chapter_title,
+            include_context=action == "ask" or len(selected_text.strip()) < 30,
+        )
+        answer = RangeLearningAgent(self.model).selection_action(
+            selected_text=selected_text,
+            action=action,
+            page_context=page_context,
+            question=question,
+        )
+        return {
+            "answer": answer,
+            "source_chunks": _dump_chunks(chunks),
+            "page_number": page_number,
+            "selected_text": selected_text,
+            "warnings": warnings,
+        }
+
+    def explain_code_selection(
+        self,
+        course_id: str,
+        selected_text: str,
+        page_number: int | None = None,
+        programming_language: str = "python",
+        chapter_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Explain selected code with optional page context."""
+
+        page_context, chunks, warnings = self._selection_page_context(
+            course_id,
+            page_number,
+            chapter_title,
+            include_context=len(selected_text.strip()) < 30,
+        )
+        answer = RangeLearningAgent(self.model).explain_code(
+            selected_text=selected_text,
+            programming_language=programming_language,
+            page_context=page_context,
+        )
+        return {
+            "answer": answer,
+            "source_chunks": _dump_chunks(chunks),
+            "page_number": page_number,
+            "selected_text": selected_text,
+            "warnings": warnings,
+        }
+
+    def get_key_points_from_range(
+        self,
+        course_id: str,
+        page_start: int,
+        page_end: int,
+        chapter_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Extract key points from a specified page range."""
+
+        _validate_page_range_values(page_start, page_end)
+        chunks = self.range_retriever.get_chunks_by_page_range(course_id, page_start, page_end, chapter_title)
+        warnings = list(self.range_retriever.warnings)
+        context = _format_source_chunks(chunks, self.settings.rag_context_max_chars)
+        if not context:
+            answer = "当前页码范围内未找到明确依据。"
+        else:
+            answer = RangeLearningAgent(self.model).key_points_range(course_id, page_start, page_end, context)
+        return {
+            "answer": answer,
+            "source_chunks": _dump_chunks(chunks),
+            "page_range": {"page_start": page_start, "page_end": page_end},
+            "warnings": warnings,
+        }
+
+    def _selection_page_context(
+        self,
+        course_id: str,
+        page_number: int | None,
+        chapter_title: str | None,
+        include_context: bool = True,
+    ) -> tuple[str, list[SourceChunk], list[str]]:
+        if page_number is None or not include_context:
+            return "", [], []
+        chunks = self.range_retriever.get_chunks_by_page_range(
+            course_id=course_id,
+            page_start=page_number,
+            page_end=page_number,
+            chapter_title=chapter_title,
+            limit=3,
+        )
+        return (
+            _format_source_chunks(chunks, max(900, min(self.settings.rag_context_max_chars, 1800))),
+            chunks,
+            list(self.range_retriever.warnings),
+        )
+
+
+def _dump_chunks(chunks: list[SourceChunk]) -> list[dict[str, Any]]:
+    return [chunk.model_dump() for chunk in chunks]
+
+
+def _validate_page_range_values(page_start: int, page_end: int) -> None:
+    if page_start < 1 or page_end < 1:
+        raise ValueError("page_start and page_end must be greater than or equal to 1.")
+    if page_start > page_end:
+        raise ValueError("page_start cannot be greater than page_end.")
+
+
+def _format_source_chunks(chunks: list[SourceChunk], max_chars: int) -> str:
+    sections: list[str] = []
+    used_chars = 0
+    for chunk in chunks:
+        header = f"[{chunk.chunk_id} | page {chunk.page_number}]"
+        section = f"{header}\n{chunk.content.strip()}"
+        remaining = max_chars - used_chars
+        if remaining <= 0:
+            break
+        if len(section) > remaining:
+            section = section[: max(0, remaining - 4)].rstrip() + "\n..."
+        sections.append(section)
+        used_chars += len(section) + 2
+    return "\n\n".join(sections)
+
+
+def _new_warnings(existing: list[str], candidates: list[str]) -> list[str]:
+    return [warning for warning in candidates if warning not in existing]
 
 

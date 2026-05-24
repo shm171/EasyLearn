@@ -11,3 +11,6 @@ vector_db/*
 !vector_db/.gitkeep
 debug_outputs/*
 !debug_outputs/.gitkeep
+reader_web/node_modules/
+reader_web/dist/
+data/materials_registry.json

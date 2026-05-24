@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from api.main import app
+
+
+def test_reader_routes_are_registered() -> None:
+    routes = {route.path for route in app.routes}
+
+    assert "/reader/materials" in routes
+    assert "/reader/materials/import" in routes
+    assert "/reader/materials/{course_id}" in routes
+    assert "/reader/pdf/{course_id}" in routes
+    assert "/reader/current-page/ask" in routes
+    assert "/reader/selection/ask" in routes
+    assert "/reader/selection/explain-code" in routes
+
+
+def test_reader_materials_returns_list() -> None:
+    client = TestClient(app)
+
+    response = client.get("/reader/materials")
+
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_reader_pdf_unknown_course_returns_404() -> None:
+    client = TestClient(app)
+
+    response = client.get("/reader/pdf/unknown_course")
+
+    assert response.status_code == 404

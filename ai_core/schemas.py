@@ -60,6 +60,84 @@ class PDFQueryResult(BaseModel):
     source_chunks: list[SourceChunk] = Field(default_factory=list)
 
 
+class PageRange(BaseModel):
+    """A 1-based inclusive PDF page range."""
+
+    page_start: int = Field(..., ge=1)
+    page_end: int = Field(..., ge=1)
+
+
+class RangeAskRequest(BaseModel):
+    """Request for asking AI within a page range."""
+
+    course_id: str
+    question: str
+    page_start: int = Field(..., ge=1)
+    page_end: int = Field(..., ge=1)
+    chapter_title: str | None = None
+
+
+class RangeSummaryRequest(BaseModel):
+    """Request for summarizing a page range."""
+
+    course_id: str
+    page_start: int = Field(..., ge=1)
+    page_end: int = Field(..., ge=1)
+    chapter_title: str | None = None
+
+
+class RangeQuizRequest(BaseModel):
+    """Request for generating quiz questions from a page range."""
+
+    course_id: str
+    page_start: int = Field(..., ge=1)
+    page_end: int = Field(..., ge=1)
+    programming_language: str = "python"
+    difficulty: Difficulty = "easy"
+    question_types: list[QuestionType]
+    question_count: int = Field(default=5, ge=1, le=50)
+    chapter_title: str | None = None
+
+    @field_validator("question_types")
+    @classmethod
+    def validate_question_types(cls, value: list[QuestionType]) -> list[QuestionType]:
+        """Ensure at least one question type is provided."""
+
+        if not value:
+            raise ValueError("question_types cannot be empty")
+        return value
+
+
+class CurrentPageAskRequest(BaseModel):
+    """Request for asking AI about the current PDF page."""
+
+    course_id: str
+    page_number: int = Field(..., ge=1)
+    question: str
+    chapter_title: str | None = None
+
+
+class SelectionAskRequest(BaseModel):
+    """Request for AI actions on selected PDF text."""
+
+    course_id: str
+    selected_text: str = Field(..., min_length=1)
+    page_number: int | None = Field(default=None, ge=1)
+    action: Literal["explain", "summarize", "ask", "generate_quiz"] = "explain"
+    question: str | None = None
+    chapter_title: str | None = None
+
+
+class CodeSelectionExplainRequest(BaseModel):
+    """Request for explaining selected code from a PDF page."""
+
+    course_id: str
+    selected_text: str = Field(..., min_length=1)
+    page_number: int | None = Field(default=None, ge=1)
+    programming_language: str = "python"
+    chapter_title: str | None = None
+
+
 class ChapterSummaryRequest(BaseModel):
     """Request for generating a chapter summary."""
 
