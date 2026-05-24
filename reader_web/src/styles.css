@@ -695,7 +695,8 @@ textarea {
   justify-content: flex-start;
 }
 
-.quiz-actions .secondary-button {
+.quiz-actions .secondary-button,
+.quiz-actions .primary-button {
   min-height: 32px;
   padding: 5px 8px;
   font-size: 13px;
@@ -749,6 +750,26 @@ textarea {
 .quiz-difficulty {
   background: #f0f3f5;
   color: #4a535a;
+}
+
+.quiz-score {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.quiz-score.correct {
+  background: #e7f3ef;
+  color: #176b5b;
+}
+
+.quiz-score.wrong {
+  background: #fff0ed;
+  color: #b42318;
 }
 
 .quiz-stem {
@@ -806,27 +827,6 @@ textarea {
   border-radius: 8px;
 }
 
-.snippet-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 8px;
-  border-bottom: 1px solid #d7dde2;
-  background: #f7f9fa;
-  color: #176b5b;
-}
-
-.snippet-bar button {
-  min-height: 28px;
-  border: 1px solid #c7d0d8;
-  border-radius: 5px;
-  padding: 3px 8px;
-  background: #ffffff;
-  color: #176b5b;
-  font-weight: 800;
-}
-
 .cm-editor {
   width: 100%;
   max-width: 100%;
@@ -878,6 +878,78 @@ textarea {
 .quiz-reference .quiz-explanation {
   color: #4a535a;
   line-height: 1.55;
+}
+
+.quiz-grade-error,
+.quiz-grade-summary,
+.quiz-feedback {
+  min-width: 0;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.quiz-grade-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #ffd6cc;
+  background: #fff0ed;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.quiz-grade-summary {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #d7e7e1;
+  background: #f4faf8;
+}
+
+.quiz-grade-summary div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.quiz-grade-summary strong {
+  color: #176b5b;
+  font-size: 22px;
+}
+
+.quiz-grade-summary span,
+.quiz-grade-summary p,
+.quiz-feedback p {
+  margin: 0;
+  color: #4a535a;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.quiz-feedback {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #d7dde2;
+  background: #f7f9fa;
+}
+
+.quiz-feedback div {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 800;
+}
+
+.quiz-feedback.correct {
+  border-color: #d7e7e1;
+  background: #f4faf8;
+  color: #176b5b;
+}
+
+.quiz-feedback.wrong {
+  border-color: #ffd6cc;
+  background: #fff8f6;
+  color: #b42318;
 }
 
 .range-tool {

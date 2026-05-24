@@ -13,3 +13,13 @@ def test_reader_web_files_exist() -> None:
 
     for file in required_files:
         assert Path(file).exists(), f"Missing file: {file}"
+
+
+def test_reader_quiz_module_supports_grading_without_snippet_templates() -> None:
+    module = Path("reader_web/src/components/QuizAnswerModule.jsx").read_text(encoding="utf-8")
+    client = Path("reader_web/src/api/client.js").read_text(encoding="utf-8")
+
+    assert "evaluateQuiz" in client
+    assert "批改" in module
+    assert "codeSnippets" not in module
+    assert "snippet-bar" not in module

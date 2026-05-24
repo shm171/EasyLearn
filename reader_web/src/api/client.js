@@ -113,6 +113,13 @@ export async function generateQuizFromRange(payload) {
   });
 }
 
+export async function evaluateQuiz(payload) {
+  return request("/quizzes/evaluate", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function getKeyPointsFromRange(payload) {
   return request("/range/key-points", {
     method: "POST",

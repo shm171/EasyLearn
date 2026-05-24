@@ -3,45 +3,71 @@ import { autocompletion, completeFromList } from "@codemirror/autocomplete";
 import { python } from "@codemirror/lang-python";
 import { EditorView } from "@codemirror/view";
 import CodeMirror from "@uiw/react-codemirror";
-import { CheckCircle2, Code2, Eye, RotateCcw } from "lucide-react";
-
-const codeSnippets = [
-  { label: "def", text: "def function_name():\n    pass" },
-  { label: "for", text: "for item in items:\n    print(item)" },
-  { label: "if", text: "if condition:\n    pass\nelse:\n    pass" },
-  { label: "list", text: "numbers = [1, 2, 3]\nprint(numbers)" },
-  { label: "input", text: "name = input(\"请输入：\")\nprint(name)" }
-];
+import { AlertCircle, CheckCircle2, ClipboardCheck, Eye, Loader2, RotateCcw, XCircle } from "lucide-react";
+import { evaluateQuiz } from "../api/client.js";
 
 const completion = completeFromList([
-  { label: "print", type: "function", apply: "print()" },
-  { label: "input", type: "function", apply: "input()" },
-  { label: "range", type: "function", apply: "range()" },
-  { label: "len", type: "function", apply: "len()" },
-  { label: "def", type: "keyword", apply: "def function_name():\n    pass" },
-  { label: "for", type: "keyword", apply: "for item in items:\n    pass" },
-  { label: "if", type: "keyword", apply: "if condition:\n    pass" },
+  { label: "for", type: "keyword" },
+  { label: "while", type: "keyword" },
+  { label: "if", type: "keyword" },
+  { label: "else", type: "keyword" },
   { label: "return", type: "keyword" },
-  { label: "True", type: "constant" },
-  { label: "False", type: "constant" }
+  { label: "class", type: "keyword" },
+  { label: "function", type: "keyword" },
+  { label: "main", type: "function" },
+  { label: "print", type: "function" },
+  { label: "console.log", type: "function", apply: "console.log()" },
+  { label: "System.out.println", type: "function", apply: "System.out.println()" },
+  { label: "true", type: "constant" },
+  { label: "false", type: "constant" }
 ]);
 
 export default function QuizAnswerModule({ quiz }) {
   const [answers, setAnswers] = useState({});
   const [showAnswers, setShowAnswers] = useState(false);
-  const questions = quiz.questions || [];
+  const [grading, setGrading] = useState(false);
+  const [gradeError, setGradeError] = useState("");
+  const [evaluation, setEvaluation] = useState(null);
+  const questions = useMemo(() => (quiz.questions || []).map(normalizeQuestion), [quiz.questions]);
+  const gradeResults = useMemo(() => buildGradeResultMap(evaluation), [evaluation]);
+  const codeLanguage = quiz.programming_language || quiz.language || "";
   const answeredCount = useMemo(
     () => questions.filter((question) => String(answers[question.question_id] || "").trim()).length,
     [answers, questions]
   );
 
   function updateAnswer(questionId, value) {
+    setGradeError("");
+    setEvaluation(null);
     setAnswers((current) => ({ ...current, [questionId]: value }));
   }
 
   function resetAnswers() {
     setAnswers({});
     setShowAnswers(false);
+    setGradeError("");
+    setEvaluation(null);
+  }
+
+  async function gradeAnswers() {
+    if (!questions.length) {
+      return;
+    }
+    if (!answeredCount) {
+      setGradeError("请先至少完成一道题，再提交批改。");
+      return;
+    }
+    setGrading(true);
+    setGradeError("");
+    setEvaluation(null);
+    try {
+      const payload = buildEvaluationPayload(quiz, questions, answers);
+      setEvaluation(await evaluateQuiz(payload));
+    } catch (error) {
+      setGradeError(cleanErrorMessage(error));
+    } finally {
+      setGrading(false);
+    }
   }
 
   return (
@@ -54,6 +80,10 @@ export default function QuizAnswerModule({ quiz }) {
           </span>
         </div>
         <div className="quiz-actions">
+          <button type="button" className="primary-button compact-button" onClick={gradeAnswers} disabled={grading}>
+            {grading ? <Loader2 size={16} className="spin" /> : <ClipboardCheck size={16} />}
+            <span>{grading ? "批改中" : "批改"}</span>
+          </button>
           <button type="button" className="secondary-button" onClick={() => setShowAnswers((value) => !value)}>
             <Eye size={16} />
             <span>{showAnswers ? "隐藏答案" : "查看答案"}</span>
@@ -66,16 +96,25 @@ export default function QuizAnswerModule({ quiz }) {
       </div>
 
       {quiz.message ? <p className="quiz-message">{quiz.message}</p> : null}
+      {gradeError ? (
+        <div className="quiz-grade-error">
+          <AlertCircle size={16} />
+          <span>{gradeError}</span>
+        </div>
+      ) : null}
+      {evaluation ? <EvaluationSummary evaluation={evaluation} /> : null}
 
       <div className="quiz-list">
         {questions.map((question, index) => (
           <QuestionCard
             key={question.question_id || index}
             index={index}
-            question={normalizeQuestion(question, index)}
+            question={question}
             answer={answers[question.question_id]}
             onAnswer={updateAnswer}
             showAnswer={showAnswers}
+            gradeResult={gradeResults.get(question.question_id)}
+            codeLanguage={codeLanguage}
           />
         ))}
       </div>
@@ -83,7 +122,23 @@ export default function QuizAnswerModule({ quiz }) {
   );
 }
 
-function QuestionCard({ index, question, answer, onAnswer, showAnswer }) {
+function EvaluationSummary({ evaluation }) {
+  const results = evaluation.question_results || [];
+  const correctCount = results.filter((item) => item.is_correct).length;
+  return (
+    <div className="quiz-grade-summary">
+      <div>
+        <strong>{Math.round(Number(evaluation.total_score || 0))} 分</strong>
+        <span>
+          正确 {correctCount} / {results.length}
+        </span>
+      </div>
+      {evaluation.weakness_summary ? <p>{evaluation.weakness_summary}</p> : null}
+    </div>
+  );
+}
+
+function QuestionCard({ index, question, answer, onAnswer, showAnswer, gradeResult, codeLanguage }) {
   const typeLabel = questionTypeLabel(question.question_type);
 
   return (
@@ -92,6 +147,11 @@ function QuestionCard({ index, question, answer, onAnswer, showAnswer }) {
         <span className="quiz-number">Q{index + 1}</span>
         <span className="quiz-type">{typeLabel}</span>
         <span className="quiz-difficulty">{question.difficulty || "easy"}</span>
+        {gradeResult ? (
+          <span className={`quiz-score ${gradeResult.is_correct ? "correct" : "wrong"}`}>
+            {Math.round(Number(gradeResult.score || 0))} 分
+          </span>
+        ) : null}
       </div>
 
       <div className="quiz-stem">{question.stem}</div>
@@ -102,7 +162,8 @@ function QuestionCard({ index, question, answer, onAnswer, showAnswer }) {
         </pre>
       ) : null}
 
-      {renderAnswerInput(question, answer || "", onAnswer)}
+      {renderAnswerInput(question, answer || "", onAnswer, codeLanguage)}
+      {gradeResult ? <QuestionFeedback result={gradeResult} /> : null}
 
       {showAnswer ? (
         <div className="quiz-reference">
@@ -118,7 +179,21 @@ function QuestionCard({ index, question, answer, onAnswer, showAnswer }) {
   );
 }
 
-function renderAnswerInput(question, answer, onAnswer) {
+function QuestionFeedback({ result }) {
+  return (
+    <div className={`quiz-feedback ${result.is_correct ? "correct" : "wrong"}`}>
+      <div>
+        {result.is_correct ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+        <strong>{result.is_correct ? "回答正确" : "需要修正"}</strong>
+      </div>
+      {result.feedback ? <p>{result.feedback}</p> : null}
+      {result.correct_answer ? <p>参考：{result.correct_answer}</p> : null}
+      {result.explanation ? <p>{result.explanation}</p> : null}
+    </div>
+  );
+}
+
+function renderAnswerInput(question, answer, onAnswer, codeLanguage) {
   const type = question.question_type;
   const options = buildOptions(question);
 
@@ -153,22 +228,10 @@ function renderAnswerInput(question, answer, onAnswer) {
   if (type === "programming") {
     return (
       <div className="code-answer">
-        <div className="snippet-bar">
-          <Code2 size={16} />
-          {codeSnippets.map((snippet) => (
-            <button
-              type="button"
-              key={snippet.label}
-              onClick={() => onAnswer(question.question_id, `${answer ? `${answer}\n` : ""}${snippet.text}`)}
-            >
-              {snippet.label}
-            </button>
-          ))}
-        </div>
         <CodeMirror
           value={answer}
           height="220px"
-          extensions={[python(), autocompletion({ override: [completion] }), EditorView.lineWrapping]}
+          extensions={codeExtensions(codeLanguage)}
           basicSetup={{
             lineNumbers: true,
             foldGutter: true,
@@ -176,7 +239,7 @@ function renderAnswerInput(question, answer, onAnswer) {
             autocompletion: true
           }}
           onChange={(value) => onAnswer(question.question_id, value)}
-          placeholder="在这里写代码，输入 pri / for / def 会出现提示..."
+          placeholder="在这里写代码或解题思路，按 Ctrl+Space 查看提示..."
         />
       </div>
     );
@@ -192,13 +255,22 @@ function renderAnswerInput(question, answer, onAnswer) {
   );
 }
 
-function normalizeQuestion(question, index) {
+function codeExtensions(language) {
+  const baseExtensions = [autocompletion({ override: [completion] }), EditorView.lineWrapping];
+  if (String(language || "").toLowerCase().includes("python")) {
+    return [python(), ...baseExtensions];
+  }
+  return baseExtensions;
+}
+
+function normalizeQuestion(question, index = 0) {
   const questionId = question.question_id || `q${index + 1}`;
   return {
     ...question,
     question_id: questionId,
     question_type: question.question_type || "short_answer",
-    stem: question.stem || question.question || "未命名题目"
+    stem: question.stem || question.question || "未命名题目",
+    difficulty: normalizeConcreteDifficulty(question.difficulty)
   };
 }
 
@@ -206,11 +278,17 @@ function buildOptions(question) {
   if (Array.isArray(question.options) && question.options.length) {
     return question.options.map((option, index) => {
       if (typeof option === "string") {
-        return { label: option, value: option };
+        return {
+          label: option,
+          value: question.question_type === "true_false" ? trueFalseValue(option, index) : option
+        };
       }
       return {
         label: option.label || option.text || option.value || `选项 ${index + 1}`,
-        value: option.value || option.label || option.text || String(index + 1)
+        value:
+          question.question_type === "true_false"
+            ? trueFalseValue(option.value || option.label || option.text, index)
+            : option.value || option.label || option.text || String(index + 1)
       };
     });
   }
@@ -221,6 +299,93 @@ function buildOptions(question) {
     ];
   }
   return [];
+}
+
+function buildGradeResultMap(evaluation) {
+  const results = evaluation?.question_results || [];
+  return new Map(results.map((result) => [result.question_id, result]));
+}
+
+function buildEvaluationPayload(quiz, questions, answers) {
+  return {
+    quiz: {
+      quiz_id: quiz.quiz_id || `reader_quiz_${Date.now()}`,
+      course_id: quiz.course_id || "reader_local",
+      chapter_title: quiz.chapter_title || quiz.quiz_title || "PDF 阅读器练习",
+      programming_language: quiz.programming_language || quiz.language || "text",
+      difficulty: normalizeQuizDifficulty(quiz.difficulty),
+      questions: questions.map((question, index) => ({
+        question_id: question.question_id || `q${index + 1}`,
+        question_type: normalizeQuestionType(question.question_type, question.options),
+        stem: question.stem || question.question || `题目 ${index + 1}`,
+        options: normalizeOptionsForSchema(question.options),
+        code_snippet: question.code_snippet || null,
+        answer: stringifyAnswer(question.answer),
+        explanation: question.explanation || "",
+        difficulty: normalizeConcreteDifficulty(question.difficulty),
+        knowledge_points: Array.isArray(question.knowledge_points) ? question.knowledge_points : [],
+        reference_chunks: Array.isArray(question.reference_chunks) ? question.reference_chunks : []
+      }))
+    },
+    user_answers: questions.map((question) => ({
+      question_id: question.question_id,
+      answer: String(answers[question.question_id] || "")
+    }))
+  };
+}
+
+function normalizeQuestionType(type, options) {
+  if (["true_false", "fill_blank", "programming", "short_answer"].includes(type)) {
+    return type;
+  }
+  if (Array.isArray(options) && options.length) {
+    return "short_answer";
+  }
+  return "short_answer";
+}
+
+function normalizeQuizDifficulty(difficulty) {
+  return ["easy", "medium", "hard", "mixed"].includes(difficulty) ? difficulty : "mixed";
+}
+
+function normalizeConcreteDifficulty(difficulty) {
+  return ["easy", "medium", "hard"].includes(difficulty) ? difficulty : "easy";
+}
+
+function normalizeOptionsForSchema(options) {
+  if (!Array.isArray(options) || !options.length) {
+    return null;
+  }
+  return options.map((option, index) => {
+    if (typeof option === "string") {
+      return option;
+    }
+    return String(option.label || option.text || option.value || `选项 ${index + 1}`);
+  });
+}
+
+function cleanErrorMessage(error) {
+  const message = error?.message || String(error || "批改失败");
+  try {
+    const parsed = JSON.parse(message);
+    if (typeof parsed.detail === "string") {
+      return parsed.detail;
+    }
+    return parsed.detail ? JSON.stringify(parsed.detail) : message;
+  } catch {
+    return message;
+  }
+}
+
+function trueFalseValue(value, index) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text.includes("正确") || text === "true" || text === "对") {
+    return "true";
+  }
+  if (text.includes("错误") || text === "false" || text === "错") {
+    return "false";
+  }
+  return index === 0 ? "true" : "false";
 }
 
 function questionTypeLabel(type) {
