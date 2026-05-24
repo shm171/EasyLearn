@@ -99,3 +99,9 @@ def get_settings() -> Settings:
 
     return Settings()
 
+
+def reset_settings_cache() -> None:
+    """Clear cached settings after the local .env file changes."""
+
+    get_settings.cache_clear()
+

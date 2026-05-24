@@ -10,6 +10,8 @@ def test_reader_routes_are_registered() -> None:
 
     assert "/reader/materials" in routes
     assert "/reader/materials/import" in routes
+    assert "/reader/api-config" in routes
+    assert "/reader/api-config/test" in routes
     assert "/reader/materials/{course_id}" in routes
     assert "/reader/pdf/{course_id}" in routes
     assert "/reader/current-page/ask" in routes

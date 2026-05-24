@@ -28,6 +28,24 @@ export function getPdfUrl(courseId) {
   return `${API_BASE}/reader/pdf/${encodeURIComponent(courseId)}`;
 }
 
+export async function getApiConfig() {
+  return request("/reader/api-config");
+}
+
+export async function saveApiConfig(payload) {
+  return request("/reader/api-config", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function testApiConfig(payload) {
+  return request("/reader/api-config/test", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function importLocalPdf({ courseId, chapterTitle, file }) {
   const formData = new FormData();
   formData.append("course_id", courseId);

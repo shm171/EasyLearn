@@ -103,3 +103,10 @@ def _get_embedding_model_cached(selected: str) -> Any:
     raise ValueError(f"Unsupported embedding provider: {selected}")
 
 
+def reset_model_caches() -> None:
+    """Clear cached chat and embedding models after configuration changes."""
+
+    _get_chat_model_cached.cache_clear()
+    _get_embedding_model_cached.cache_clear()
+
+

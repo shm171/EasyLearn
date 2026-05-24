@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, FileUp, GripVertical, MessageSquareText, PanelRightOpen, X } from "lucide-react";
+import { BookOpen, FileUp, GripVertical, KeyRound, MessageSquareText, PanelRightOpen, X } from "lucide-react";
 import {
   askCurrentPage,
   askSelection,
@@ -7,6 +7,7 @@ import {
   generateQuizFromSelection,
   listMaterials
 } from "./api/client.js";
+import ApiConfigDialog from "./components/ApiConfigDialog.jsx";
 import AiSidePanel from "./components/AiSidePanel.jsx";
 import CourseSelector from "./components/CourseSelector.jsx";
 import ImportPdfDialog from "./components/ImportPdfDialog.jsx";
@@ -31,6 +32,7 @@ export default function App() {
   const [numPages, setNumPages] = useState(0);
   const [panel, setPanel] = useState(emptyPanel);
   const [importOpen, setImportOpen] = useState(false);
+  const [apiConfigOpen, setApiConfigOpen] = useState(false);
   const [rangeOpen, setRangeOpen] = useState(false);
   const [rangePosition, setRangePosition] = useState(() => {
     if (typeof window === "undefined") {
@@ -224,6 +226,10 @@ export default function App() {
           <FileUp size={18} />
           <span>导入本地 PDF</span>
         </button>
+        <button type="button" className="secondary-button api-top-button" onClick={() => setApiConfigOpen(true)}>
+          <KeyRound size={18} />
+          <span>API 配置</span>
+        </button>
         <CourseSelector
           materials={materials}
           selectedCourseId={selectedCourseId}
@@ -317,6 +323,7 @@ export default function App() {
         onClose={() => setImportOpen(false)}
         onImported={handleImported}
       />
+      <ApiConfigDialog open={apiConfigOpen} onClose={() => setApiConfigOpen(false)} />
     </div>
   );
 }

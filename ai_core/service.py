@@ -15,10 +15,10 @@ from ai_core.agents.quiz_agent import ProgrammingQuizGenerationAgent
 from ai_core.agents.reading_agent import PDFReadingAgent
 from ai_core.agents.summary_agent import ChapterSummaryAgent
 from ai_core.agents.tutor_agent import ProgrammingTutorAgent
-from ai_core.config import get_settings
+from ai_core.config import get_settings, reset_settings_cache
 from ai_core.materials_registry import MaterialsRegistry
 from ai_core.memory import create_memory_checkpointer
-from ai_core.model_factory import get_chat_model
+from ai_core.model_factory import get_chat_model, reset_model_caches
 from ai_core.rag.pdf_loader import PDFLoaderManager
 from ai_core.rag.range_retriever import NO_RANGE_CONTENT_MESSAGE, RangeRetriever
 from ai_core.rag.retriever import PDFRetriever
@@ -182,6 +182,21 @@ class LearningAIService:
                 daemon=True,
             )
             self._warm_up_thread.start()
+
+    def reload_model_config(self) -> dict[str, Any]:
+        """Reload local environment settings and clear cached chat models."""
+
+        with self._init_lock:
+            reset_settings_cache()
+            reset_model_caches()
+            self.settings = get_settings()
+            self._model = None
+            self._warm_up_status = {"state": "not_started"}
+            return {
+                "ai_provider": self.settings.ai_provider,
+                "deepseek_model": self.settings.deepseek_model,
+                "deepseek_api_key_set": bool(self.settings.deepseek_api_key),
+            }
 
     def ingest_pdf(self, course_id: str, file_path: str, chapter_title: str | None = None) -> PDFIngestResult:
         """Read, chunk, and store a PDF in the local vector database."""

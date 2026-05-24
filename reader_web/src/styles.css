@@ -160,9 +160,14 @@ textarea {
   font-weight: 700;
 }
 
-.import-top-button {
+.import-top-button,
+.api-top-button {
   min-width: 138px;
   min-height: 42px;
+}
+
+.api-top-button {
+  min-width: 118px;
 }
 
 .current-page-pill {
@@ -771,7 +776,8 @@ textarea {
   background: rgba(18, 28, 33, 0.42);
 }
 
-.import-dialog {
+.import-dialog,
+.api-dialog {
   width: min(520px, 100%);
   display: grid;
   gap: 14px;
@@ -779,6 +785,10 @@ textarea {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 20px 48px rgba(17, 25, 30, 0.24);
+}
+
+.api-dialog {
+  width: min(560px, 100%);
 }
 
 .dialog-head {
@@ -821,6 +831,36 @@ textarea {
   display: none;
 }
 
+.api-status-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.api-status-row div,
+.success-box {
+  border-radius: 6px;
+  padding: 10px;
+  background: #f4faf8;
+}
+
+.api-status-row div {
+  display: grid;
+  gap: 4px;
+}
+
+.api-status-row span {
+  color: #69757f;
+  font-size: 12px;
+}
+
+.success-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #176b5b;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: end;
@@ -839,6 +879,7 @@ textarea {
 
   .brand,
   .import-top-button,
+  .api-top-button,
   .course-selector select,
   .course-selector input,
   .current-page-pill {
@@ -876,7 +917,8 @@ textarea {
 
   .segmented,
   .range-grid,
-  .range-presets {
+  .range-presets,
+  .api-status-row {
     grid-template-columns: 1fr;
   }
 
