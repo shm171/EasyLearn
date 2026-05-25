@@ -42,7 +42,7 @@ uvicorn api.main:app --reload
 ### 1. 启动后端
 
 ```powershell
-cd C:\Users\35753\Documents\智能体学习
+cd <你的项目目录>
 .\.venv\Scripts\activate
 uvicorn api.main:app --reload
 ```
@@ -54,7 +54,7 @@ uvicorn api.main:app --reload
 ### 2. 启动 React 阅读器
 
 ```powershell
-cd C:\Users\35753\Documents\智能体学习\reader_web
+cd <你的项目目录>\reader_web
 npm install
 npm run dev
 ```
