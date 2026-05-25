@@ -1,6 +1,7 @@
-import { BookOpenText, Code2, FileQuestion, HelpCircle, ListChecks } from "lucide-react";
+import { BookOpenText, Clipboard, Code2, FileQuestion, HelpCircle, ListChecks } from "lucide-react";
 
 const selectionActions = [
+  { id: "copy_selection", label: "复制选中文字", icon: Clipboard },
   { id: "explain", label: "解释选中文字", icon: BookOpenText },
   { id: "summarize", label: "总结选中文字", icon: ListChecks },
   { id: "explain_code", label: "解释选中代码", icon: Code2 },

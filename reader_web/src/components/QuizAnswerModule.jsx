@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
-import { autocompletion, completeFromList } from "@codemirror/autocomplete";
+import { autocompletion, completeFromList, startCompletion } from "@codemirror/autocomplete";
 import { python } from "@codemirror/lang-python";
 import { EditorView } from "@codemirror/view";
 import CodeMirror from "@uiw/react-codemirror";
 import { AlertCircle, CheckCircle2, ClipboardCheck, Eye, Loader2, RotateCcw, XCircle } from "lucide-react";
 import { evaluateQuiz } from "../api/client.js";
 
-const completion = completeFromList([
+const genericCompletions = [
   { label: "for", type: "keyword" },
   { label: "while", type: "keyword" },
   { label: "if", type: "keyword" },
@@ -15,12 +15,53 @@ const completion = completeFromList([
   { label: "class", type: "keyword" },
   { label: "function", type: "keyword" },
   { label: "main", type: "function" },
-  { label: "print", type: "function" },
-  { label: "console.log", type: "function", apply: "console.log()" },
-  { label: "System.out.println", type: "function", apply: "System.out.println()" },
   { label: "true", type: "constant" },
   { label: "false", type: "constant" }
-]);
+];
+
+const languageCompletions = {
+  python: [
+    { label: "def", type: "keyword" },
+    { label: "elif", type: "keyword" },
+    { label: "in", type: "keyword" },
+    { label: "import", type: "keyword" },
+    { label: "print", type: "function", apply: "print()" },
+    { label: "input", type: "function", apply: "input()" },
+    { label: "range", type: "function", apply: "range()" },
+    { label: "len", type: "function", apply: "len()" },
+    { label: "int", type: "function", apply: "int()" },
+    { label: "random.randint", type: "function", apply: "random.randint()" },
+    { label: "None", type: "constant" },
+    { label: "True", type: "constant" },
+    { label: "False", type: "constant" }
+  ],
+  javascript: [
+    { label: "const", type: "keyword" },
+    { label: "let", type: "keyword" },
+    { label: "console.log", type: "function", apply: "console.log()" },
+    { label: "document.querySelector", type: "function", apply: "document.querySelector()" }
+  ],
+  java: [
+    { label: "public", type: "keyword" },
+    { label: "static", type: "keyword" },
+    { label: "void", type: "keyword" },
+    { label: "String", type: "type" },
+    { label: "System.out.println", type: "function", apply: "System.out.println()" }
+  ],
+  cpp: [
+    { label: "#include", type: "keyword" },
+    { label: "std::cout", type: "function" },
+    { label: "std::cin", type: "function" },
+    { label: "vector", type: "type" },
+    { label: "string", type: "type" }
+  ]
+};
+
+const triggerCompletionAfterPaste = EditorView.updateListener.of((update) => {
+  if (update.docChanged && update.transactions.some((transaction) => transaction.isUserEvent("input.paste"))) {
+    window.setTimeout(() => startCompletion(update.view), 0);
+  }
+});
 
 export default function QuizAnswerModule({ quiz }) {
   const [answers, setAnswers] = useState({});
@@ -140,6 +181,7 @@ function EvaluationSummary({ evaluation }) {
 
 function QuestionCard({ index, question, answer, onAnswer, showAnswer, gradeResult, codeLanguage }) {
   const typeLabel = questionTypeLabel(question.question_type);
+  const inferredCodeLanguage = inferCodeLanguage(codeLanguage, question, answer);
 
   return (
     <article className="quiz-card">
@@ -162,7 +204,7 @@ function QuestionCard({ index, question, answer, onAnswer, showAnswer, gradeResu
         </pre>
       ) : null}
 
-      {renderAnswerInput(question, answer || "", onAnswer, codeLanguage)}
+      {renderAnswerInput(question, answer || "", onAnswer, inferredCodeLanguage)}
       {gradeResult ? <QuestionFeedback result={gradeResult} /> : null}
 
       {showAnswer ? (
@@ -256,11 +298,66 @@ function renderAnswerInput(question, answer, onAnswer, codeLanguage) {
 }
 
 function codeExtensions(language) {
-  const baseExtensions = [autocompletion({ override: [completion] }), EditorView.lineWrapping];
-  if (String(language || "").toLowerCase().includes("python")) {
+  const normalizedLanguage = normalizeCodeLanguage(language);
+  const completion = completeFromList([
+    ...genericCompletions,
+    ...(languageCompletions[normalizedLanguage] || [])
+  ]);
+  const baseExtensions = [
+    autocompletion({ override: [completion], activateOnTyping: true }),
+    triggerCompletionAfterPaste,
+    EditorView.lineWrapping
+  ];
+  if (normalizedLanguage === "python") {
     return [python(), ...baseExtensions];
   }
   return baseExtensions;
+}
+
+function inferCodeLanguage(baseLanguage, question, answer) {
+  const text = [
+    baseLanguage,
+    question?.programming_language,
+    question?.language,
+    question?.stem,
+    question?.code_snippet,
+    question?.answer,
+    answer
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+
+  if (/\bpython\b|\bdef\s+\w+\s*\(|\bimport\s+\w+|print\s*\(|input\s*\(|range\s*\(|random\.randint|\bnone\b|\belif\b/.test(text)) {
+    return "python";
+  }
+  if (/\bjavascript\b|\bjs\b|console\.log|\bconst\s+|\blet\s+|=>/.test(text)) {
+    return "javascript";
+  }
+  if (/\bc\+\+\b|\bcpp\b|#include|std::|cout\s*<<|cin\s*>>/.test(text)) {
+    return "cpp";
+  }
+  if (/\bjava\b|system\.out\.println|public\s+static\s+void\s+main/.test(text)) {
+    return "java";
+  }
+  return "text";
+}
+
+function normalizeCodeLanguage(language) {
+  const lowered = String(language || "").toLowerCase();
+  if (lowered.includes("python")) {
+    return "python";
+  }
+  if (lowered.includes("javascript") || lowered === "js") {
+    return "javascript";
+  }
+  if (lowered.includes("c++") || lowered.includes("cpp")) {
+    return "cpp";
+  }
+  if (lowered.includes("java")) {
+    return "java";
+  }
+  return "text";
 }
 
 function normalizeQuestion(question, index = 0) {

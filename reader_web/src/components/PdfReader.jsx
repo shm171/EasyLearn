@@ -130,7 +130,12 @@ export default function PdfReader({
           y={menu.y}
           selectedText={menu.selectedText}
           onClose={() => setMenu(null)}
-          onAction={(action) => {
+          onAction={async (action) => {
+            if (action === "copy_selection") {
+              await copyTextToClipboard(menu.selectedText);
+              setMenu(null);
+              return;
+            }
             onContextAction(action, menu.selectedText);
             setMenu(null);
           }}
@@ -235,4 +240,27 @@ function shouldRenderThumbnail(page, currentPage, expanded, numPages) {
     return true;
   }
   return page === 1 || page === numPages || Math.abs(page - currentPage) <= 3;
+}
+
+async function copyTextToClipboard(text) {
+  if (!text) {
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall back to the hidden textarea path below.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
 }

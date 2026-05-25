@@ -24,3 +24,16 @@ def test_reader_quiz_module_supports_grading_without_snippet_templates() -> None
     assert "String(question.question_id" in module
     assert "codeSnippets" not in module
     assert "snippet-bar" not in module
+
+
+def test_reader_context_menu_supports_copy_and_paste_completion() -> None:
+    context_menu = Path("reader_web/src/components/ContextMenu.jsx").read_text(encoding="utf-8")
+    pdf_reader = Path("reader_web/src/components/PdfReader.jsx").read_text(encoding="utf-8")
+    quiz_module = Path("reader_web/src/components/QuizAnswerModule.jsx").read_text(encoding="utf-8")
+
+    assert "copy_selection" in context_menu
+    assert "复制选中文字" in context_menu
+    assert "copyTextToClipboard" in pdf_reader
+    assert "input.paste" in quiz_module
+    assert "startCompletion" in quiz_module
+    assert "inferCodeLanguage" in quiz_module
