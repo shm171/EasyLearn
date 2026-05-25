@@ -65,4 +65,11 @@ def test_reader_supports_body_page_and_bookmark_navigation() -> None:
     assert "readerMarks.bookmarks[Number(event.key) - 1]" in reader
     assert "isEditableShortcutTarget" in reader
     assert "reader-nav-card" in styles
+    assert "reader-nav-strip" in styles
     assert "body-jump-form" in styles
+    toolbar_block = reader.split('<Document', maxsplit=1)[0]
+    thumbnail_block = reader.split("function ThumbnailRail", maxsplit=1)[1].split(
+        "function ReaderNavPanel", maxsplit=1
+    )[0]
+    assert "ReaderNavPanel" in toolbar_block
+    assert "ReaderNavPanel" not in thumbnail_block

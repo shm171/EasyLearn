@@ -189,28 +189,44 @@ export default function PdfReader({
 
   return (
     <section className="reader-shell">
+      <div className="reader-nav-strip">
+        <ReaderNavPanel
+          numPages={numPages}
+          currentPage={currentPage}
+          readerMarks={readerMarks}
+          bodyPageInput={bodyPageInput}
+          onBodyPageInputChange={setBodyPageInput}
+          onMarkBodyStart={markCurrentAsBodyStart}
+          onJumpBodyStart={jumpToBodyStart}
+          onJumpBodyPage={jumpToBodyPage}
+          onAddBookmark={addCurrentPageBookmark}
+          onJumpBookmark={jumpToBookmark}
+        />
+      </div>
       <div className="reader-toolbar">
-        <button
-          type="button"
-          className="icon-text-button"
-          onClick={() => goToPage(currentPage - 1)}
-          disabled={currentPage <= 1}
-        >
-          <ChevronLeft size={18} />
-          <span>上一页</span>
-        </button>
-        <div className="page-meter">
-          第 {currentPage} 页 / 共 {numPages || "-"} 页
+        <div className="reader-page-controls">
+          <button
+            type="button"
+            className="icon-text-button"
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage <= 1}
+          >
+            <ChevronLeft size={18} />
+            <span>上一页</span>
+          </button>
+          <div className="page-meter">
+            第 {currentPage} 页 / 共 {numPages || "-"} 页
+          </div>
+          <button
+            type="button"
+            className="icon-text-button"
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={!numPages || currentPage >= numPages}
+          >
+            <ChevronRight size={18} />
+            <span>下一页</span>
+          </button>
         </div>
-        <button
-          type="button"
-          className="icon-text-button"
-          onClick={() => goToPage(currentPage + 1)}
-          disabled={!numPages || currentPage >= numPages}
-        >
-          <ChevronRight size={18} />
-          <span>下一页</span>
-        </button>
       </div>
 
       <Document
@@ -226,14 +242,6 @@ export default function PdfReader({
             numPages={numPages}
             currentPage={currentPage}
             onPageSelect={goToPage}
-            readerMarks={readerMarks}
-            bodyPageInput={bodyPageInput}
-            onBodyPageInputChange={setBodyPageInput}
-            onMarkBodyStart={markCurrentAsBodyStart}
-            onJumpBodyStart={jumpToBodyStart}
-            onJumpBodyPage={jumpToBodyPage}
-            onAddBookmark={addCurrentPageBookmark}
-            onJumpBookmark={jumpToBookmark}
           />
           <div className="pdf-stage" onContextMenu={handleContextMenu}>
           <Page
@@ -271,15 +279,7 @@ export default function PdfReader({
 function ThumbnailRail({
   numPages,
   currentPage,
-  onPageSelect,
-  readerMarks,
-  bodyPageInput,
-  onBodyPageInputChange,
-  onMarkBodyStart,
-  onJumpBodyStart,
-  onJumpBodyPage,
-  onAddBookmark,
-  onJumpBookmark
+  onPageSelect
 }) {
   const [expanded, setExpanded] = useState(false);
   const activeRef = useRef(null);
@@ -307,18 +307,6 @@ function ThumbnailRail({
           <span>{expanded ? "收起" : "展开"}</span>
         </button>
       </div>
-      <ReaderNavPanel
-        numPages={numPages}
-        currentPage={currentPage}
-        readerMarks={readerMarks}
-        bodyPageInput={bodyPageInput}
-        onBodyPageInputChange={onBodyPageInputChange}
-        onMarkBodyStart={onMarkBodyStart}
-        onJumpBodyStart={onJumpBodyStart}
-        onJumpBodyPage={onJumpBodyPage}
-        onAddBookmark={onAddBookmark}
-        onJumpBookmark={onJumpBookmark}
-      />
       <div className="thumbnail-list">
         {pages.map((page, index) =>
           page === "gap" ? (
