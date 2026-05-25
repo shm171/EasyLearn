@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { autocompletion, completeFromList, startCompletion } from "@codemirror/autocomplete";
 import { python } from "@codemirror/lang-python";
 import { EditorView } from "@codemirror/view";
@@ -62,6 +62,7 @@ const triggerCompletionAfterPaste = EditorView.updateListener.of((update) => {
     window.setTimeout(() => startCompletion(update.view), 0);
   }
 });
+const codeExtensionCache = new Map();
 
 export default function QuizAnswerModule({ quiz }) {
   const [answers, setAnswers] = useState({});
@@ -77,11 +78,11 @@ export default function QuizAnswerModule({ quiz }) {
     [answers, questions]
   );
 
-  function updateAnswer(questionId, value) {
+  const updateAnswer = useCallback((questionId, value) => {
     setGradeError("");
     setEvaluation(null);
     setAnswers((current) => ({ ...current, [questionId]: value }));
-  }
+  }, []);
 
   function resetAnswers() {
     setAnswers({});
@@ -179,9 +180,12 @@ function EvaluationSummary({ evaluation }) {
   );
 }
 
-function QuestionCard({ index, question, answer, onAnswer, showAnswer, gradeResult, codeLanguage }) {
+const QuestionCard = memo(function QuestionCard({ index, question, answer, onAnswer, showAnswer, gradeResult, codeLanguage }) {
   const typeLabel = questionTypeLabel(question.question_type);
-  const inferredCodeLanguage = inferCodeLanguage(codeLanguage, question, answer);
+  const inferredCodeLanguage = useMemo(
+    () => inferCodeLanguage(codeLanguage, question, answer),
+    [answer, codeLanguage, question]
+  );
 
   return (
     <article className="quiz-card">
@@ -219,7 +223,7 @@ function QuestionCard({ index, question, answer, onAnswer, showAnswer, gradeResu
       ) : null}
     </article>
   );
-}
+});
 
 function QuestionFeedback({ result }) {
   return (
@@ -299,6 +303,9 @@ function renderAnswerInput(question, answer, onAnswer, codeLanguage) {
 
 function codeExtensions(language) {
   const normalizedLanguage = normalizeCodeLanguage(language);
+  if (codeExtensionCache.has(normalizedLanguage)) {
+    return codeExtensionCache.get(normalizedLanguage);
+  }
   const completion = completeFromList([
     ...genericCompletions,
     ...(languageCompletions[normalizedLanguage] || [])
@@ -309,8 +316,11 @@ function codeExtensions(language) {
     EditorView.lineWrapping
   ];
   if (normalizedLanguage === "python") {
-    return [python(), ...baseExtensions];
+    const extensions = [python(), ...baseExtensions];
+    codeExtensionCache.set(normalizedLanguage, extensions);
+    return extensions;
   }
+  codeExtensionCache.set(normalizedLanguage, baseExtensions);
   return baseExtensions;
 }
 
@@ -408,7 +418,7 @@ function buildEvaluationPayload(quiz, questions, answers) {
     quiz: {
       quiz_id: String(quiz.quiz_id || `reader_quiz_${Date.now()}`),
       course_id: String(quiz.course_id || "reader_local"),
-      chapter_title: String(quiz.chapter_title || quiz.quiz_title || "PDF 阅读器练习"),
+      chapter_title: String(quiz.chapter_title || quiz.quiz_title || "资料阅读器练习"),
       programming_language: String(quiz.programming_language || quiz.language || "text"),
       difficulty: normalizeQuizDifficulty(quiz.difficulty),
       questions: questions.map((question, index) => ({

@@ -294,6 +294,154 @@ textarea {
   background: #dfe5e8;
 }
 
+.markdown-stage {
+  padding: 22px;
+}
+
+.markdown-stage .annotation-surface {
+  width: min(860px, 100%);
+}
+
+.annotation-surface {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.annotation-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.annotation-canvas.active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.annotation-surface .react-pdf__Page {
+  position: relative;
+  z-index: 1;
+}
+
+.markdown-page {
+  width: min(860px, 100%);
+  min-height: min(980px, 100%);
+  padding: 42px 52px;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 2px 16px rgba(25, 31, 36, 0.16);
+  color: #202427;
+  line-height: 1.72;
+  overflow-wrap: anywhere;
+}
+
+.markdown-stage .markdown-page {
+  width: 100%;
+}
+
+.markdown-heading {
+  margin: 1.1em 0 0.45em;
+  color: #12343b;
+  line-height: 1.25;
+}
+
+.markdown-heading:first-child {
+  margin-top: 0;
+}
+
+.markdown-heading.level-1 {
+  padding-bottom: 10px;
+  border-bottom: 1px solid #d7dde2;
+  font-size: 30px;
+}
+
+.markdown-heading.level-2 {
+  font-size: 23px;
+}
+
+.markdown-heading.level-3,
+.markdown-heading.level-4 {
+  font-size: 18px;
+}
+
+.markdown-paragraph {
+  margin: 0 0 14px;
+}
+
+.markdown-list {
+  margin: 0 0 16px;
+  padding-left: 24px;
+}
+
+.markdown-list li {
+  margin: 4px 0;
+}
+
+.markdown-page p code,
+.markdown-page li code,
+.markdown-page th code,
+.markdown-page td code,
+.markdown-page blockquote code {
+  border-radius: 4px;
+  padding: 2px 5px;
+  background: #eef3f4;
+  color: #12343b;
+  font-family:
+    "Cascadia Code",
+    Consolas,
+    monospace;
+  font-size: 0.92em;
+}
+
+.markdown-code {
+  margin: 14px 0 18px;
+  white-space: pre-wrap;
+}
+
+.markdown-quote {
+  margin: 14px 0;
+  border-left: 4px solid #8ab9ae;
+  padding: 9px 12px;
+  background: #f4faf8;
+  color: #4a535a;
+}
+
+.markdown-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  margin: 14px 0 18px;
+  border: 1px solid #d7dde2;
+  border-radius: 6px;
+}
+
+.markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+}
+
+.markdown-table th,
+.markdown-table td {
+  border-bottom: 1px solid #e2e7eb;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-table th {
+  background: #f7f9fa;
+  color: #12343b;
+}
+
+.markdown-table tr:last-child td {
+  border-bottom: 0;
+}
+
 .thumbnail-rail {
   min-height: 0;
   max-height: 100%;
@@ -492,6 +640,48 @@ textarea {
   height: 44px;
   background: #ffffff;
   border: 1px solid #e0e6ea;
+}
+
+.markdown-thumbnail {
+  width: 104px;
+  min-height: 138px;
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid #e0e6ea;
+  border-radius: 4px;
+  padding: 8px;
+  background: #fbfcfc;
+  color: #4a535a;
+  text-align: left;
+}
+
+.markdown-thumbnail svg {
+  color: #176b5b;
+}
+
+.markdown-thumbnail strong {
+  width: 100%;
+  color: #12343b;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.markdown-thumbnail p {
+  margin: 0;
+  color: #69757f;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
 }
 
 .thumbnail-gap {
@@ -1139,6 +1329,163 @@ textarea {
   gap: 12px;
 }
 
+.annotation-tool {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.annotation-tool-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.annotation-tool-head div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.annotation-tool-head strong {
+  color: #12343b;
+}
+
+.annotation-tool-head span,
+.annotation-save-state {
+  color: #69757f;
+  font-size: 12px;
+}
+
+.annotation-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 1px solid #c7d0d8;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #f7f9fa;
+  color: #176b5b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.annotation-toggle input {
+  min-height: auto;
+}
+
+.annotation-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.annotation-tool-grid button {
+  min-width: 0;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #c7d0d8;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #ffffff;
+  color: #4a535a;
+  font-weight: 800;
+}
+
+.annotation-tool-grid button.active {
+  border-color: #8ab9ae;
+  background: #e7f3ef;
+  color: #176b5b;
+}
+
+.annotation-color-field,
+.annotation-width-field {
+  min-width: 0;
+}
+
+.annotation-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.annotation-color-row button {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: var(--swatch-color);
+  box-shadow: 0 0 0 1px #c7d0d8;
+}
+
+.annotation-color-row button.active {
+  box-shadow:
+    0 0 0 2px #176b5b,
+    0 0 0 4px #e7f3ef;
+}
+
+.annotation-color-row input[type="color"] {
+  width: 36px;
+  min-height: 30px;
+  padding: 2px;
+}
+
+.annotation-width-field div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
+}
+
+.annotation-width-field input {
+  width: 100%;
+}
+
+.annotation-width-field strong {
+  color: #176b5b;
+  font-size: 13px;
+  text-align: right;
+}
+
+.annotation-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.annotation-actions .primary-button,
+.annotation-actions .secondary-button {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.annotation-actions span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotation-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.annotation-save-state.dirty {
+  color: #b45309;
+  font-weight: 800;
+}
+
 .range-head {
   display: flex;
   align-items: center;
@@ -1262,7 +1609,7 @@ textarea {
 
 .toolbox-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid #e0e7e5;
@@ -1500,6 +1847,10 @@ textarea {
     grid-template-columns: 132px minmax(0, 1fr);
   }
 
+  .markdown-page {
+    padding: 32px 34px;
+  }
+
   .thumbnail-rail {
     max-height: none;
     border-right: 1px solid #c9d2d8;
@@ -1550,5 +1901,14 @@ textarea {
 
   .thumbnail-button {
     min-height: 100%;
+  }
+
+  .markdown-stage {
+    padding: 14px;
+  }
+
+  .markdown-page {
+    min-height: auto;
+    padding: 24px 20px;
   }
 }

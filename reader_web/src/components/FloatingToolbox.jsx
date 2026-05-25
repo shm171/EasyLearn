@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { GripVertical, Layers3, MessageSquareText, PanelTop, X } from "lucide-react";
+import { GripVertical, Layers3, MessageSquareText, Paintbrush, PanelTop, X } from "lucide-react";
 import PageRangeTool from "./PageRangeTool.jsx";
+import ReaderAnnotationTool from "./ReaderAnnotationTool.jsx";
 import ReaderPageManager from "./ReaderPageManager.jsx";
 
 export default function FloatingToolbox({
@@ -10,7 +11,14 @@ export default function FloatingToolbox({
   onPageChange,
   onStart,
   onResult,
-  onError
+  onError,
+  annotationSettings,
+  onAnnotationSettingsChange,
+  annotationCount,
+  annotationsDirty,
+  onUndoAnnotation,
+  onClearPageAnnotations,
+  onSaveAnnotations
 }) {
   const [open, setOpen] = useState(false);
   const [activeTool, setActiveTool] = useState("range");
@@ -74,7 +82,7 @@ export default function FloatingToolbox({
             <GripVertical size={18} />
             <div>
               <strong>工具箱</strong>
-              <span>页问和页面管理</span>
+              <span>页问、批注和页面管理</span>
             </div>
             <button type="button" className="icon-button" onClick={() => setOpen(false)} title="关闭工具箱">
               <X size={17} />
@@ -90,6 +98,16 @@ export default function FloatingToolbox({
             >
               <MessageSquareText size={16} />
               <span>页面问答</span>
+            </button>
+            <button
+              type="button"
+              className={activeTool === "annotation" ? "active" : ""}
+              onClick={() => setActiveTool("annotation")}
+              role="tab"
+              aria-selected={activeTool === "annotation"}
+            >
+              <Paintbrush size={16} />
+              <span>批注</span>
             </button>
             <button
               type="button"
@@ -111,6 +129,18 @@ export default function FloatingToolbox({
                 onStart={onStart}
                 onResult={onResult}
                 onError={onError}
+              />
+            ) : activeTool === "annotation" ? (
+              <ReaderAnnotationTool
+                courseId={courseId}
+                currentPage={currentPage}
+                settings={annotationSettings}
+                onSettingsChange={onAnnotationSettingsChange}
+                annotationCount={annotationCount}
+                dirty={annotationsDirty}
+                onUndo={onUndoAnnotation}
+                onClearPage={onClearPageAnnotations}
+                onSave={onSaveAnnotations}
               />
             ) : (
               <ReaderPageManager

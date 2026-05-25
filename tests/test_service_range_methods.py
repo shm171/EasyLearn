@@ -9,6 +9,12 @@ def test_learning_service_exposes_reader_and_range_methods() -> None:
     for method_name in [
         "list_materials",
         "get_material",
+        "ingest_markdown",
+        "get_markdown_pages",
+        "get_markdown_index",
+        "get_markdown_page",
+        "_get_range_context_memory",
+        "_remember_range_context",
         "ask_pdf_in_range",
         "summarize_range",
         "generate_quiz_from_range",

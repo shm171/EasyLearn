@@ -23,6 +23,17 @@ const emptyPanel = {
   progress: null
 };
 
+const DEFAULT_ANNOTATION_SETTINGS = {
+  enabled: false,
+  tool: "pen",
+  color: "#ef4444",
+  strokeWidth: 4
+};
+
+const ANNOTATION_STORAGE_PREFIX = "easylearn.reader.annotations";
+const MAX_ANNOTATIONS_PER_PAGE = 500;
+const MAX_POINTS_PER_ANNOTATION = 900;
+
 export default function App() {
   const [materials, setMaterials] = useState([]);
   const [materialsLoading, setMaterialsLoading] = useState(false);
@@ -34,12 +45,21 @@ export default function App() {
   const [panel, setPanel] = useState(emptyPanel);
   const [importOpen, setImportOpen] = useState(false);
   const [apiConfigOpen, setApiConfigOpen] = useState(false);
+  const [annotationSettings, setAnnotationSettings] = useState(DEFAULT_ANNOTATION_SETTINGS);
+  const [annotationsByPage, setAnnotationsByPage] = useState({});
+  const [annotationsDirty, setAnnotationsDirty] = useState(false);
   const progressTimerRef = useRef(null);
 
   const activeCourseId = useMemo(
     () => manualCourseId.trim() || selectedCourseId,
     [manualCourseId, selectedCourseId]
   );
+  const activeMaterial = useMemo(
+    () => materials.find((material) => material.course_id === activeCourseId) || null,
+    [activeCourseId, materials]
+  );
+  const activeMaterialLabel = activeMaterial?.file_type === "markdown" ? "Markdown" : "PDF";
+  const currentPageAnnotations = annotationsByPage[String(currentPage)] || [];
 
   const goToReaderPage = useCallback(
     (page) => {
@@ -48,11 +68,76 @@ export default function App() {
     [numPages]
   );
 
+  const updateCurrentPageAnnotations = useCallback(
+    (nextAnnotations) => {
+      setAnnotationsByPage((current) => ({
+        ...current,
+        [String(currentPage)]: trimPageAnnotations(nextAnnotations)
+      }));
+      setAnnotationsDirty(true);
+    },
+    [currentPage]
+  );
+
+  const undoCurrentPageAnnotation = useCallback(() => {
+    setAnnotationsByPage((current) => {
+      const pageKey = String(currentPage);
+      const pageAnnotations = current[pageKey] || [];
+      if (!pageAnnotations.length) {
+        return current;
+      }
+      setAnnotationsDirty(true);
+      return {
+        ...current,
+        [pageKey]: pageAnnotations.slice(0, -1)
+      };
+    });
+  }, [currentPage]);
+
+  const clearCurrentPageAnnotations = useCallback(() => {
+    setAnnotationsByPage((current) => {
+      const pageKey = String(currentPage);
+      const pageAnnotations = current[pageKey] || [];
+      if (!pageAnnotations.length) {
+        return current;
+      }
+      setAnnotationsDirty(true);
+      return {
+        ...current,
+        [pageKey]: []
+      };
+    });
+  }, [currentPage]);
+
   useEffect(() => {
     refreshMaterials();
   }, []);
 
   useEffect(() => () => clearProgressTimer(), []);
+
+  useEffect(() => {
+    setAnnotationsByPage(readSavedAnnotations(activeCourseId));
+    setAnnotationsDirty(false);
+  }, [activeCourseId]);
+
+  useEffect(() => {
+    function handleAnnotationShortcut(event) {
+      if (!activeCourseId || event.repeat || !event.ctrlKey || !event.altKey) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "a") {
+        event.preventDefault();
+        clearCurrentPageAnnotations();
+      } else if (key === "z" || key === "backspace") {
+        event.preventDefault();
+        undoCurrentPageAnnotation();
+      }
+    }
+
+    window.addEventListener("keydown", handleAnnotationShortcut);
+    return () => window.removeEventListener("keydown", handleAnnotationShortcut);
+  }, [activeCourseId, clearCurrentPageAnnotations, undoCurrentPageAnnotation]);
 
   async function refreshMaterials() {
     setMaterialsLoading(true);
@@ -76,7 +161,7 @@ export default function App() {
     setManualCourseId("");
     setCurrentPage(1);
     setPanel({
-      actionLabel: "导入本地 PDF",
+      actionLabel: "导入本地资料",
       selectedText: "",
       loading: false,
       error: "",
@@ -151,6 +236,14 @@ export default function App() {
     }));
   }
 
+  function saveAnnotations() {
+    if (!activeCourseId) {
+      return;
+    }
+    writeSavedAnnotations(activeCourseId, annotationsByPage);
+    setAnnotationsDirty(false);
+  }
+
   async function handleContextAction(action, selectedText) {
     if (!activeCourseId) {
       failPanel("请先选择或输入 course_id。");
@@ -181,7 +274,7 @@ export default function App() {
       }
 
       if (!selectedText) {
-        failPanel("请先选中 PDF 中的文字。");
+        failPanel("请先选中资料中的文字。");
         return;
       }
 
@@ -209,11 +302,11 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <BookOpen size={22} />
-          <span>EasyLearn PDF 阅读器</span>
+          <span>EasyLearn 资料阅读器</span>
         </div>
         <button type="button" className="primary-button import-top-button" onClick={() => setImportOpen(true)}>
           <FileUp size={18} />
-          <span>导入本地 PDF</span>
+          <span>导入本地资料</span>
         </button>
         <button type="button" className="secondary-button api-top-button" onClick={() => setApiConfigOpen(true)}>
           <KeyRound size={18} />
@@ -245,19 +338,23 @@ export default function App() {
         <div className="reader-column">
           <section className="quick-start">
             <div>
-              <strong>{activeCourseId ? `正在阅读：${activeCourseId}` : "先导入或选择一个 PDF"}</strong>
-              <span>{numPages ? `共 ${numPages} 页` : "本地 PDF 阅读与 AI 检索"}</span>
+              <strong>{activeCourseId ? `正在阅读：${activeCourseId}` : "先导入或选择一个资料"}</strong>
+              <span>{numPages ? `${activeMaterialLabel} · 共 ${numPages} 页` : "本地 PDF / Markdown 阅读与 AI 检索"}</span>
             </div>
             <button type="button" className="secondary-button" onClick={() => setImportOpen(true)}>
               <FileUp size={17} />
-              <span>导入 PDF</span>
+              <span>导入资料</span>
             </button>
           </section>
           <PdfReader
             courseId={activeCourseId}
+            material={activeMaterial}
             currentPage={currentPage}
+            annotationSettings={annotationSettings}
+            pageAnnotations={currentPageAnnotations}
             onPageChange={setCurrentPage}
             onPageInfo={setNumPages}
+            onPageAnnotationsChange={updateCurrentPageAnnotations}
             onContextAction={handleContextAction}
             onImport={() => setImportOpen(true)}
             onRefresh={refreshMaterials}
@@ -273,6 +370,13 @@ export default function App() {
         onStart={(label, progressKind) => startPanel(label, "", progressKind)}
         onResult={finishPanel}
         onError={failPanel}
+        annotationSettings={annotationSettings}
+        onAnnotationSettingsChange={setAnnotationSettings}
+        annotationCount={currentPageAnnotations.length}
+        annotationsDirty={annotationsDirty}
+        onUndoAnnotation={undoCurrentPageAnnotation}
+        onClearPageAnnotations={clearCurrentPageAnnotations}
+        onSaveAnnotations={saveAnnotations}
       />
       <ImportPdfDialog
         open={importOpen}
@@ -362,4 +466,63 @@ function progressMessage(profile, value) {
     }
   }
   return message;
+}
+
+function readSavedAnnotations(courseId) {
+  if (!courseId) {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(annotationStorageKey(courseId));
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    return normalizeAnnotationsByPage(parsed.pages || {});
+  } catch {
+    return {};
+  }
+}
+
+function writeSavedAnnotations(courseId, annotationsByPage) {
+  try {
+    window.localStorage.setItem(
+      annotationStorageKey(courseId),
+      JSON.stringify({
+        version: 1,
+        savedAt: new Date().toISOString(),
+        pages: normalizeAnnotationsByPage(annotationsByPage)
+      })
+    );
+  } catch {
+    // Browser storage can be unavailable; the in-memory annotations still stay usable.
+  }
+}
+
+function annotationStorageKey(courseId) {
+  return `${ANNOTATION_STORAGE_PREFIX}.${courseId}`;
+}
+
+function normalizeAnnotationsByPage(value) {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([page, annotations]) => [page, Array.isArray(annotations) ? trimPageAnnotations(annotations) : []])
+      .filter(([page]) => Number(page) >= 1)
+  );
+}
+
+function trimPageAnnotations(annotations) {
+  return annotations.slice(-MAX_ANNOTATIONS_PER_PAGE).map((operation) => {
+    if (
+      (operation.tool === "pen" || operation.tool === "eraser") &&
+      Array.isArray(operation.points) &&
+      operation.points.length > MAX_POINTS_PER_ANNOTATION
+    ) {
+      return { ...operation, points: operation.points.slice(-MAX_POINTS_PER_ANNOTATION) };
+    }
+    return operation;
+  });
 }

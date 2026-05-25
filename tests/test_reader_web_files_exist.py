@@ -11,6 +11,8 @@ def test_reader_web_files_exist() -> None:
         "reader_web/src/components/QuizAnswerModule.jsx",
         "reader_web/src/components/FloatingToolbox.jsx",
         "reader_web/src/components/ReaderPageManager.jsx",
+        "reader_web/src/components/ReaderAnnotationLayer.jsx",
+        "reader_web/src/components/ReaderAnnotationTool.jsx",
     ]
 
     for file in required_files:
@@ -39,6 +41,28 @@ def test_reader_context_menu_supports_copy_and_paste_completion() -> None:
     assert "input.paste" in quiz_module
     assert "startCompletion" in quiz_module
     assert "inferCodeLanguage" in quiz_module
+    assert "codeExtensionCache" in quiz_module
+    assert "memo(function QuestionCard" in quiz_module
+
+
+def test_reader_supports_markdown_materials() -> None:
+    app = Path("reader_web/src/App.jsx").read_text(encoding="utf-8")
+    reader = Path("reader_web/src/components/PdfReader.jsx").read_text(encoding="utf-8")
+    dialog = Path("reader_web/src/components/ImportPdfDialog.jsx").read_text(encoding="utf-8")
+    client = Path("reader_web/src/api/client.js").read_text(encoding="utf-8")
+    styles = Path("reader_web/src/styles.css").read_text(encoding="utf-8")
+
+    assert "activeMaterial" in app
+    assert "getMarkdownIndex" in client
+    assert "getMarkdownPage" in client
+    assert "importLocalMaterial" in client
+    assert ".md,.markdown" in dialog
+    assert "MarkdownThumbnail" in reader
+    assert "renderMarkdown" in reader
+    assert "markdownPageCache" in reader
+    assert "requestMarkdownPage" in reader
+    assert "正在加载当前页" in reader
+    assert "markdown-page" in styles
 
 
 def test_ai_side_panel_collapses_sources_by_default() -> None:
@@ -77,3 +101,31 @@ def test_reader_supports_body_page_and_bookmark_navigation() -> None:
     assert "toolbox-panel" in styles
     assert "body-jump-form" in styles
     assert "ReaderPageManager" not in reader
+
+
+def test_reader_supports_page_annotations() -> None:
+    app = Path("reader_web/src/App.jsx").read_text(encoding="utf-8")
+    reader = Path("reader_web/src/components/PdfReader.jsx").read_text(encoding="utf-8")
+    toolbox = Path("reader_web/src/components/FloatingToolbox.jsx").read_text(encoding="utf-8")
+    annotation_tool = Path("reader_web/src/components/ReaderAnnotationTool.jsx").read_text(encoding="utf-8")
+    annotation_layer = Path("reader_web/src/components/ReaderAnnotationLayer.jsx").read_text(encoding="utf-8")
+    styles = Path("reader_web/src/styles.css").read_text(encoding="utf-8")
+
+    assert "ANNOTATION_STORAGE_PREFIX" in app
+    assert "event.ctrlKey || !event.altKey" in app
+    assert 'key === "a"' in app
+    assert 'key === "z" || key === "backspace"' in app
+    assert "ReaderAnnotationTool" in toolbox
+    assert "ReaderAnnotationLayer" in reader
+    assert "annotation-surface" in reader
+    assert "tool: settings.tool" in annotation_layer
+    assert "destination-out" in annotation_layer
+    assert "requestAnimationFrame" in annotation_layer
+    assert "MAX_ANNOTATIONS_PER_PAGE" in annotation_layer
+    assert "drawArrow" in annotation_layer
+    assert "drawRect" in annotation_layer
+    assert "画笔" in annotation_tool
+    assert "擦除" in annotation_tool
+    assert "矩形" in annotation_tool
+    assert "保存" in annotation_tool
+    assert "annotation-canvas" in styles

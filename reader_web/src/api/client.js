@@ -28,6 +28,18 @@ export function getPdfUrl(courseId) {
   return `${API_BASE}/reader/pdf/${encodeURIComponent(courseId)}`;
 }
 
+export async function getMarkdownPages(courseId) {
+  return request(`/reader/markdown/${encodeURIComponent(courseId)}`);
+}
+
+export async function getMarkdownIndex(courseId) {
+  return request(`/reader/markdown/${encodeURIComponent(courseId)}/index`);
+}
+
+export async function getMarkdownPage(courseId, pageNumber) {
+  return request(`/reader/markdown/${encodeURIComponent(courseId)}/pages/${Number(pageNumber)}`);
+}
+
 export async function getApiConfig() {
   return request("/reader/api-config");
 }
@@ -47,6 +59,10 @@ export async function testApiConfig(payload) {
 }
 
 export async function importLocalPdf({ courseId, chapterTitle, file }) {
+  return importLocalMaterial({ courseId, chapterTitle, file });
+}
+
+export async function importLocalMaterial({ courseId, chapterTitle, file }) {
   const formData = new FormData();
   formData.append("course_id", courseId);
   formData.append("chapter_title", chapterTitle || "");

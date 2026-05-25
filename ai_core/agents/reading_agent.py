@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-"""Agent for answering questions over PDF materials."""
+"""Agent for answering questions over imported learning materials."""
 
 import json
 from collections.abc import Iterator
@@ -14,7 +14,7 @@ from ai_core.rag.retriever import PDFRetriever
 from ai_core.schemas import PDFQueryRequest, PDFQueryResult, SourceChunk
 
 
-READING_SYSTEM_PROMPT = """You are a programming learning tutor using PDF retrieval as the primary source.
+READING_SYSTEM_PROMPT = """You are a programming learning tutor using imported material retrieval as the primary source.
 First judge whether retrieved evidence actually supports the student's question.
 When evidence is relevant, answer mainly from the material and cite chunk IDs for supported points.
 When evidence is partial, you may add reliable programming knowledge, but clearly mark it as supplemental.
@@ -24,7 +24,7 @@ NO_EVIDENCE_MESSAGE = "资料中未找到明确依据"
 
 
 class PDFReadingAgent:
-    """Answer questions based on retrieved PDF chunks."""
+    """Answer questions based on retrieved material chunks."""
 
     def __init__(self, model: Any, retriever: PDFRetriever, checkpointer: Any | None = None) -> None:
         """Create a lightweight direct RAG reader.
@@ -39,7 +39,7 @@ class PDFReadingAgent:
         self.checkpointer = checkpointer
 
     def answer(self, request: PDFQueryRequest) -> PDFQueryResult:
-        """Answer a PDF question using retrieved evidence."""
+        """Answer a material question using retrieved evidence."""
 
         chunks = self.retrieve_sources(request)
         prompt = _build_prompt(request, chunks)
@@ -52,7 +52,7 @@ class PDFReadingAgent:
         return PDFQueryResult(answer=answer_text or NO_EVIDENCE_MESSAGE, source_chunks=chunks)
 
     def retrieve_sources(self, request: PDFQueryRequest) -> list[SourceChunk]:
-        """Retrieve source chunks for a PDF question."""
+        """Retrieve source chunks for a material question."""
 
         return self.retriever.retrieve(
             request.question,

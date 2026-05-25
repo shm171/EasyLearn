@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""FastAPI routes for the local PDF reader UI."""
+"""FastAPI routes for the local material reader UI."""
 
 from pathlib import Path
 import os
@@ -19,7 +19,8 @@ from ai_core.service import LearningAIService
 from api.dependencies import get_learning_service
 
 
-router = APIRouter(prefix="/reader", tags=["pdf reader"])
+router = APIRouter(prefix="/reader", tags=["material reader"])
+MARKDOWN_SUFFIXES = {".md", ".markdown"}
 
 
 class ApiConfigPayload(BaseModel):
@@ -39,6 +40,15 @@ class ApiTestPayload(BaseModel):
 def _safe_slug(value: str, default: str = "pdf") -> str:
     slug = re.sub(r"[^0-9A-Za-z_\-\u4e00-\u9fff]+", "_", value).strip("._-")
     return slug or default
+
+
+def _file_type_from_name(file_name: str) -> str:
+    suffix = Path(file_name).suffix.lower()
+    if suffix == ".pdf":
+        return "pdf"
+    if suffix in MARKDOWN_SUFFIXES:
+        return "markdown"
+    raise ValueError("Only .pdf, .md, and .markdown files are supported.")
 
 
 def _env_path() -> Path:
@@ -80,7 +90,7 @@ def _write_env_values(values: dict[str, str]) -> None:
 
 @router.get("/materials")
 def list_materials(service: LearningAIService = Depends(get_learning_service)) -> list[dict[str, Any]]:
-    """List imported PDF materials."""
+    """List imported PDF and Markdown materials."""
 
     return service.list_materials()
 
@@ -152,7 +162,7 @@ def get_material(
     course_id: str,
     service: LearningAIService = Depends(get_learning_service),
 ) -> dict[str, Any]:
-    """Return metadata for one imported PDF material."""
+    """Return metadata for one imported reader material."""
 
     try:
         return service.get_material(course_id)
@@ -176,38 +186,94 @@ def get_pdf(
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
+@router.get("/markdown/{course_id}")
+def get_markdown(
+    course_id: str,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Return virtual pages for a registered Markdown file."""
+
+    try:
+        return service.get_markdown_pages(course_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/markdown/{course_id}/index")
+def get_markdown_index(
+    course_id: str,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Return lightweight virtual-page metadata for a registered Markdown file."""
+
+    try:
+        return service.get_markdown_index(course_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/markdown/{course_id}/pages/{page_number}")
+def get_markdown_page(
+    course_id: str,
+    page_number: int,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Return one virtual Markdown page."""
+
+    try:
+        return service.get_markdown_page(course_id, page_number)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/materials/import")
-def import_local_pdf(
+def import_local_material(
     course_id: str = Form(...),
     chapter_title: str | None = Form(default=None),
     file: UploadFile = File(...),
     service: LearningAIService = Depends(get_learning_service),
 ) -> dict[str, Any]:
-    """Upload a local PDF, save it into materials/, ingest it, and register it."""
+    """Upload a local PDF or Markdown file, ingest it, and register it."""
 
     if not course_id.strip():
         raise HTTPException(status_code=400, detail="course_id cannot be empty")
     original_name = Path(file.filename or "material.pdf").name
-    if Path(original_name).suffix.lower() != ".pdf":
-        raise HTTPException(status_code=400, detail="Only .pdf files are supported.")
+    try:
+        file_type = _file_type_from_name(original_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     registry = MaterialsRegistry()
     safe_course_id = _safe_slug(course_id.strip(), "course")
     safe_stem = _safe_slug(Path(original_name).stem, "material")
-    target_path = registry.materials_dir / f"{safe_course_id}__{safe_stem}.pdf"
+    suffix = Path(original_name).suffix.lower()
+    target_path = registry.materials_dir / f"{safe_course_id}__{safe_stem}{suffix}"
     counter = 1
     while target_path.exists():
-        target_path = registry.materials_dir / f"{safe_course_id}__{safe_stem}_{counter}.pdf"
+        target_path = registry.materials_dir / f"{safe_course_id}__{safe_stem}_{counter}{suffix}"
         counter += 1
 
     try:
         with target_path.open("wb") as output:
             shutil.copyfileobj(file.file, output)
-        ingest_result = service.ingest_pdf(
-            course_id=course_id.strip(),
-            file_path=str(target_path),
-            chapter_title=chapter_title or None,
-        )
+        if file_type == "pdf":
+            ingest_result = service.ingest_pdf(
+                course_id=course_id.strip(),
+                file_path=str(target_path),
+                chapter_title=chapter_title or None,
+            )
+        else:
+            ingest_result = service.ingest_markdown(
+                course_id=course_id.strip(),
+                file_path=str(target_path),
+                chapter_title=chapter_title or None,
+            )
         material = service.get_material(course_id.strip())
     except Exception as exc:
         if target_path.exists():
@@ -217,7 +283,7 @@ def import_local_pdf(
         file.file.close()
 
     return {
-        "message": "PDF imported successfully.",
+        "message": f"{file_type.upper() if file_type == 'pdf' else 'Markdown'} imported successfully.",
         "material": material,
         "ingest_result": ingest_result.model_dump(),
     }

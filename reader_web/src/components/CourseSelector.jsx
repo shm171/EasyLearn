@@ -13,18 +13,18 @@ export default function CourseSelector({
   return (
     <div className="course-selector">
       <label>
-        已导入 PDF
+        已导入资料
         <select
           value={selectedCourseId}
           onChange={(event) => onSelect(event.target.value)}
           disabled={loading || materials.length === 0}
         >
           {materials.length === 0 ? (
-            <option value="">暂无注册 PDF</option>
+            <option value="">暂无注册资料</option>
           ) : (
             materials.map((material) => (
               <option key={material.course_id} value={material.course_id}>
-                {material.course_id} · {material.file_name}
+                {material.course_id} · {material.file_name} · {material.file_type === "markdown" ? "Markdown" : "PDF"}
               </option>
             ))
           )}

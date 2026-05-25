@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FileUp, Loader2, X } from "lucide-react";
-import { importLocalPdf } from "../api/client.js";
+import { importLocalMaterial } from "../api/client.js";
 
 export default function ImportPdfDialog({ open, onClose, onImported }) {
   const [courseId, setCourseId] = useState("");
@@ -21,13 +21,13 @@ export default function ImportPdfDialog({ open, onClose, onImported }) {
       return;
     }
     if (!file) {
-      setError("请选择一个 PDF 文件。");
+      setError("请选择一个 PDF 或 Markdown 文件。");
       return;
     }
 
     setLoading(true);
     try {
-      const result = await importLocalPdf({
+      const result = await importLocalMaterial({
         courseId: courseId.trim(),
         chapterTitle: chapterTitle.trim(),
         file
@@ -49,7 +49,7 @@ export default function ImportPdfDialog({ open, onClose, onImported }) {
       <form className="import-dialog" onSubmit={submit}>
         <div className="dialog-head">
           <div>
-            <strong>导入本地 PDF</strong>
+            <strong>导入本地资料</strong>
             <span>materials / Chroma</span>
           </div>
           <button type="button" className="icon-button" onClick={onClose} title="关闭">
@@ -78,10 +78,10 @@ export default function ImportPdfDialog({ open, onClose, onImported }) {
 
         <label className="file-drop">
           <FileUp size={24} />
-          <span>{file ? file.name : "点击选择 PDF 文件"}</span>
+          <span>{file ? file.name : "点击选择 PDF / Markdown 文件"}</span>
           <input
             type="file"
-            accept="application/pdf,.pdf"
+            accept="application/pdf,text/markdown,text/plain,.pdf,.md,.markdown"
             onChange={(event) => setFile(event.target.files?.[0] || null)}
           />
         </label>

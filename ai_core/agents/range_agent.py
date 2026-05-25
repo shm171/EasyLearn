@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Prompt helpers for page-range and PDF reader AI actions."""
+"""Prompt helpers for page-range reader AI actions."""
 
 from typing import Any
 
@@ -11,7 +11,7 @@ NO_EVIDENCE_IN_RANGE = "当前页码范围内未找到明确依据。"
 
 
 class RangeLearningAgent:
-    """Use a chat model with explicitly bounded PDF context."""
+    """Use a chat model with explicitly bounded material context."""
 
     def __init__(self, model: Any) -> None:
         self.model = model
@@ -24,17 +24,17 @@ class RangeLearningAgent:
         page_end: int,
         context: str,
     ) -> str:
-        prompt = f"""你是编程学习资料阅读助手。请只基于给定页码范围内的 PDF 上下文回答。
+        prompt = f"""你是编程学习资料阅读助手。请只基于给定页码范围内的资料上下文回答。
 
 course_id: {course_id}
 允许页码范围: {page_start}-{page_end}
 问题: {question}
 
-PDF 上下文:
+资料上下文:
 {_clip_prompt_text(context, 3600) or NO_EVIDENCE_IN_RANGE}
 
 要求:
-- 只能使用上述上下文回答，不要编造 PDF 中没有的内容。
+- 只能使用上述上下文回答，不要编造资料中没有的内容。
 - 如果上下文不足，明确说：{NO_EVIDENCE_IN_RANGE}
 - 输出必须简洁、有层次：先给“## 结论”，再给“## 要点”，必要时给“## 示例”。
 - 要点最多 5 条；能用代码说明时，代码必须放在 ```{_language_hint(question)}``` 代码块中。
@@ -43,12 +43,12 @@ PDF 上下文:
         return self._invoke(prompt)
 
     def summarize_range(self, course_id: str, page_start: int, page_end: int, context: str) -> str:
-        prompt = f"""请只总结指定 PDF 页码范围内的内容。
+        prompt = f"""请只总结指定资料页码范围内的内容。
 
 course_id: {course_id}
 允许页码范围: {page_start}-{page_end}
 
-PDF 上下文:
+资料上下文:
 {_clip_prompt_text(context, 4200) or NO_EVIDENCE_IN_RANGE}
 
 要求:
@@ -59,12 +59,12 @@ PDF 上下文:
         return self._invoke(prompt)
 
     def key_points_range(self, course_id: str, page_start: int, page_end: int, context: str) -> str:
-        prompt = f"""请提取指定 PDF 页码范围内的学习重点。
+        prompt = f"""请提取指定资料页码范围内的学习重点。
 
 course_id: {course_id}
 允许页码范围: {page_start}-{page_end}
 
-PDF 上下文:
+资料上下文:
 {_clip_prompt_text(context, 3600) or NO_EVIDENCE_IN_RANGE}
 
 要求:
@@ -85,7 +85,7 @@ PDF 上下文:
         question_types: list[str],
         question_count: int,
     ) -> str:
-        prompt = f"""请根据指定 PDF 页码范围生成编程练习题，必须只使用给定上下文。
+        prompt = f"""请根据指定资料页码范围生成编程练习题，必须只使用给定上下文。
 
 course_id: {course_id}
 允许页码范围: {page_start}-{page_end}
@@ -94,7 +94,7 @@ difficulty: {difficulty}
 question_types: {question_types}
 question_count: {question_count}
 
-PDF 上下文:
+资料上下文:
 {_clip_prompt_text(context, 4200) or NO_EVIDENCE_IN_RANGE}
 
 要求:
@@ -128,7 +128,7 @@ PDF 上下文:
             "ask": f"回答用户关于选中文字的问题：{question or '请围绕选中文字回答。'}",
             "generate_quiz": "根据选中文字生成 3 道基础练习题，包含答案和解释。",
         }.get(action, "解释选中文字。")
-        prompt = f"""你是编程学习 PDF 阅读助手。请快速、分层回答。selected_text 是最高优先级证据。
+        prompt = f"""你是编程学习资料阅读助手。请快速、分层回答。selected_text 是最高优先级证据。
 
 任务: {action_instruction}
 
@@ -188,7 +188,7 @@ selected_text:
 - 用 Markdown 固定结构：“## 作用 / ## 关键语句 / ## 运行行为 / ## 常见错误”。
 - 每节最多 4 条，避免长段落。
 - 引用代码时必须使用 ```{programming_language}``` 代码块。
-- 不要编造页面上下文中没有的 PDF 内容。"""
+- 不要编造页面上下文中没有的资料内容。"""
         return self._invoke(prompt)
 
     def _invoke(self, prompt: str) -> str:

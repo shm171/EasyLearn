@@ -38,6 +38,7 @@ class PDFIngestResult(BaseModel):
     course_id: str
     file_path: str
     file_name: str
+    file_type: Literal["pdf", "markdown"] = "pdf"
     chapter_title: str | None = None
     page_count: int
     chunk_count: int

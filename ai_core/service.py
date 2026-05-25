@@ -5,8 +5,9 @@
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import logging
+from pathlib import Path
 from threading import RLock, Thread
-from time import perf_counter
+from time import perf_counter, time
 from typing import Any
 
 from ai_core.agents.range_agent import RangeLearningAgent
@@ -19,6 +20,7 @@ from ai_core.config import get_settings, reset_settings_cache
 from ai_core.materials_registry import MaterialsRegistry
 from ai_core.memory import create_memory_checkpointer
 from ai_core.model_factory import get_chat_model, reset_model_caches
+from ai_core.rag.markdown_loader import MarkdownLoaderManager
 from ai_core.rag.pdf_loader import PDFLoaderManager
 from ai_core.rag.range_retriever import NO_RANGE_CONTENT_MESSAGE, RangeRetriever
 from ai_core.rag.retriever import PDFRetriever
@@ -52,6 +54,28 @@ class PDFAnswerStream:
     text_stream: Iterator[str]
 
 
+@dataclass(frozen=True)
+class MarkdownPageCacheEntry:
+    """Cached virtual pages for one Markdown material version."""
+
+    signature: tuple[str, int, int]
+    material: dict[str, Any]
+    documents: list[Any]
+    created_at: float
+    last_used: float
+
+
+@dataclass(frozen=True)
+class RangeContextCacheEntry:
+    """Short-lived range context memory for repeated AI actions."""
+
+    context: str
+    chunks: list[SourceChunk]
+    warnings: list[str]
+    created_at: float
+    last_used: float
+
+
 class LearningAIService:
     """Facade for the programming learning AI core."""
 
@@ -60,6 +84,7 @@ class LearningAIService:
 
         self.settings = get_settings()
         self.pdf_loader = PDFLoaderManager()
+        self.markdown_loader = MarkdownLoaderManager()
         self.text_splitter = PDFTextSplitter()
         self._knowledge_base: DocumentKnowledgeBase | None = None
         self._retriever: PDFRetriever | None = None
@@ -67,6 +92,8 @@ class LearningAIService:
         self._materials_registry: MaterialsRegistry | None = None
         self._model: Any | None = None
         self._checkpointer: Any | None = None
+        self._markdown_pages_cache: dict[str, MarkdownPageCacheEntry] = {}
+        self._range_context_cache: dict[tuple[str, str, int, int], RangeContextCacheEntry] = {}
         self._init_lock = RLock()
         self._warm_up_lock = RLock()
         self._warm_up_thread: Thread | None = None
@@ -226,6 +253,34 @@ class LearningAIService:
             logger.warning("PDF imported but was not registered for the reader: %s", exc)
         return result
 
+    def ingest_markdown(self, course_id: str, file_path: str, chapter_title: str | None = None) -> PDFIngestResult:
+        """Read, chunk, and store a Markdown file in the local vector database."""
+
+        documents = self.markdown_loader.load_markdown(file_path=file_path, course_id=course_id, chapter_title=chapter_title)
+        chunks = self.text_splitter.split_documents(documents)
+        self.knowledge_base.add_documents(chunks)
+        first_meta = documents[0].metadata
+        result = PDFIngestResult(
+            course_id=course_id,
+            file_path=file_path,
+            file_name=str(first_meta.get("file_name", "")),
+            file_type="markdown",
+            chapter_title=chapter_title,
+            page_count=len(documents),
+            chunk_count=len(chunks),
+            message="Markdown imported successfully.",
+        )
+        try:
+            self.materials_registry.register_markdown(
+                course_id=course_id,
+                file_path=file_path,
+                chapter_title=chapter_title,
+                page_count=result.page_count,
+            )
+        except Exception as exc:
+            logger.warning("Markdown imported but was not registered for the reader: %s", exc)
+        return result
+
     def ask_pdf(self, course_id: str, question: str, chapter_title: str | None = None) -> PDFQueryResult:
         """Ask a question over imported PDF materials."""
 
@@ -328,14 +383,73 @@ class LearningAIService:
         return agent.chat(request)
 
     def list_materials(self) -> list[dict[str, Any]]:
-        """List imported PDF materials."""
+        """List imported reader materials."""
 
         return self.materials_registry.list_materials()
 
     def get_material(self, course_id: str) -> dict[str, Any]:
-        """Get PDF material metadata by course_id."""
+        """Get material metadata by course_id."""
 
         return self.materials_registry.get_material(course_id)
+
+    def get_markdown_pages(self, course_id: str) -> dict[str, Any]:
+        """Return virtual Markdown pages for the reader UI."""
+
+        material, documents = self._get_markdown_documents_cached(course_id)
+        pages = [
+            {
+                "page_number": document.metadata.get("page_number"),
+                "title": document.metadata.get("page_title") or f"第 {index} 页",
+                "preview": _markdown_preview(document.page_content),
+                "content": document.page_content,
+            }
+            for index, document in enumerate(documents, start=1)
+        ]
+        return {
+            "material": {**material, "page_count": len(pages), "file_type": "markdown"},
+            "page_count": len(pages),
+            "pages": pages,
+        }
+
+    def get_markdown_index(self, course_id: str) -> dict[str, Any]:
+        """Return lightweight Markdown page metadata for fast reader startup."""
+
+        material, documents = self._get_markdown_documents_cached(course_id)
+        pages = [
+            {
+                "page_number": document.metadata.get("page_number"),
+                "title": document.metadata.get("page_title") or f"第 {index} 页",
+                "preview": _markdown_preview(document.page_content),
+                "char_count": len(document.page_content),
+            }
+            for index, document in enumerate(documents, start=1)
+        ]
+        return {
+            "material": {**material, "page_count": len(pages), "file_type": "markdown"},
+            "page_count": len(pages),
+            "pages": pages,
+        }
+
+    def get_markdown_page(self, course_id: str, page_number: int) -> dict[str, Any]:
+        """Return one virtual Markdown page by 1-based page number."""
+
+        if page_number < 1:
+            raise ValueError("page_number must be greater than or equal to 1.")
+        material, documents = self._get_markdown_documents_cached(course_id)
+        if page_number > len(documents):
+            raise ValueError(f"Markdown page {page_number} is outside 1-{len(documents)}.")
+        document = documents[page_number - 1]
+        return {
+            "material": {**material, "page_count": len(documents), "file_type": "markdown"},
+            "page_count": len(documents),
+            "page": {
+                "page_number": document.metadata.get("page_number") or page_number,
+                "title": document.metadata.get("page_title") or f"第 {page_number} 页",
+                "preview": _markdown_preview(document.page_content),
+                "content": document.page_content,
+                "char_count": len(document.page_content),
+            },
+        }
 
     def ask_pdf_in_range(
         self,
@@ -377,6 +491,7 @@ class LearningAIService:
             )
             warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
 
+        self._remember_range_context(course_id, page_start, page_end, chapter_title, context, chunks, warnings)
         if context == NO_RANGE_CONTENT_MESSAGE:
             answer = "当前页码范围内未找到明确依据。"
         else:
@@ -404,21 +519,31 @@ class LearningAIService:
         """Summarize a specified page range."""
 
         _validate_page_range_values(page_start, page_end)
-        chunks = self.range_retriever.search_in_range(
-            course_id=course_id,
-            query="核心概念 语法 示例 易错点 复习总结",
-            page_start=page_start,
-            page_end=page_end,
-            chapter_title=chapter_title,
-            top_k=_summary_top_k(self.settings.top_k),
-        )
-        warnings = list(self.range_retriever.warnings)
-        if not chunks:
-            chunks = self.range_retriever.get_chunks_by_page_range(
-                course_id, page_start, page_end, chapter_title, limit=_summary_top_k(self.settings.top_k)
-            )
-            warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
-        context = _format_source_chunks(chunks, _context_limit(self.settings.rag_context_max_chars, 4200))
+        cached_context = self._get_range_context_memory(course_id, page_start, page_end, chapter_title, min_chunks=4)
+        if cached_context:
+            context, chunks, warnings = cached_context
+        else:
+            if _page_span(page_start, page_end) <= 12:
+                chunks = self.range_retriever.get_chunks_by_page_range(
+                    course_id, page_start, page_end, chapter_title, limit=_summary_top_k(self.settings.top_k)
+                )
+            else:
+                chunks = self.range_retriever.search_in_range(
+                    course_id=course_id,
+                    query="核心概念 语法 示例 易错点 复习总结",
+                    page_start=page_start,
+                    page_end=page_end,
+                    chapter_title=chapter_title,
+                    top_k=_summary_top_k(self.settings.top_k),
+                )
+            warnings = list(self.range_retriever.warnings)
+            if not chunks:
+                chunks = self.range_retriever.get_chunks_by_page_range(
+                    course_id, page_start, page_end, chapter_title, limit=_summary_top_k(self.settings.top_k)
+                )
+                warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
+            context = _format_source_chunks(chunks, _context_limit(self.settings.rag_context_max_chars, 4200))
+            self._remember_range_context(course_id, page_start, page_end, chapter_title, context, chunks, warnings)
         if not context:
             summary = "当前页码范围内未找到明确依据。"
         else:
@@ -444,21 +569,33 @@ class LearningAIService:
         """Generate programming quiz from a page range."""
 
         _validate_page_range_values(page_start, page_end)
-        chunks = self.range_retriever.search_in_range(
-            course_id=course_id,
-            query=f"{programming_language} syntax examples practice questions exercises",
-            page_start=page_start,
-            page_end=page_end,
-            chapter_title=chapter_title,
-            top_k=_quiz_range_top_k(question_count),
+        cached_context = self._get_range_context_memory(
+            course_id, page_start, page_end, chapter_title, min_chunks=min(_quiz_range_top_k(question_count), 4)
         )
-        warnings = list(self.range_retriever.warnings)
-        if not chunks:
-            chunks = self.range_retriever.get_chunks_by_page_range(
-                course_id, page_start, page_end, chapter_title, limit=_quiz_range_top_k(question_count)
-            )
-            warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
-        context = _format_source_chunks(chunks, _quiz_context_limit(self.settings.rag_context_max_chars, question_count))
+        if cached_context:
+            context, chunks, warnings = cached_context
+        else:
+            if _page_span(page_start, page_end) <= 10:
+                chunks = self.range_retriever.get_chunks_by_page_range(
+                    course_id, page_start, page_end, chapter_title, limit=_quiz_range_top_k(question_count)
+                )
+            else:
+                chunks = self.range_retriever.search_in_range(
+                    course_id=course_id,
+                    query=f"{programming_language} syntax examples practice questions exercises",
+                    page_start=page_start,
+                    page_end=page_end,
+                    chapter_title=chapter_title,
+                    top_k=_quiz_range_top_k(question_count),
+                )
+            warnings = list(self.range_retriever.warnings)
+            if not chunks:
+                chunks = self.range_retriever.get_chunks_by_page_range(
+                    course_id, page_start, page_end, chapter_title, limit=_quiz_range_top_k(question_count)
+                )
+                warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
+            context = _format_source_chunks(chunks, _quiz_context_limit(self.settings.rag_context_max_chars, question_count))
+            self._remember_range_context(course_id, page_start, page_end, chapter_title, context, chunks, warnings)
         if not context:
             quiz_text = '{"message":"当前页码范围内未找到明确依据。","questions":[]}'
         else:
@@ -586,21 +723,31 @@ class LearningAIService:
         """Extract key points from a specified page range."""
 
         _validate_page_range_values(page_start, page_end)
-        chunks = self.range_retriever.search_in_range(
-            course_id=course_id,
-            query="关键概念 语法 示例 易错点",
-            page_start=page_start,
-            page_end=page_end,
-            chapter_title=chapter_title,
-            top_k=_summary_top_k(self.settings.top_k),
-        )
-        warnings = list(self.range_retriever.warnings)
-        if not chunks:
-            chunks = self.range_retriever.get_chunks_by_page_range(
-                course_id, page_start, page_end, chapter_title, limit=_summary_top_k(self.settings.top_k)
-            )
-            warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
-        context = _format_source_chunks(chunks, _context_limit(self.settings.rag_context_max_chars, 3600))
+        cached_context = self._get_range_context_memory(course_id, page_start, page_end, chapter_title, min_chunks=4)
+        if cached_context:
+            context, chunks, warnings = cached_context
+        else:
+            if _page_span(page_start, page_end) <= 12:
+                chunks = self.range_retriever.get_chunks_by_page_range(
+                    course_id, page_start, page_end, chapter_title, limit=_summary_top_k(self.settings.top_k)
+                )
+            else:
+                chunks = self.range_retriever.search_in_range(
+                    course_id=course_id,
+                    query="关键概念 语法 示例 易错点",
+                    page_start=page_start,
+                    page_end=page_end,
+                    chapter_title=chapter_title,
+                    top_k=_summary_top_k(self.settings.top_k),
+                )
+            warnings = list(self.range_retriever.warnings)
+            if not chunks:
+                chunks = self.range_retriever.get_chunks_by_page_range(
+                    course_id, page_start, page_end, chapter_title, limit=_summary_top_k(self.settings.top_k)
+                )
+                warnings.extend(_new_warnings(warnings, self.range_retriever.warnings))
+            context = _format_source_chunks(chunks, _context_limit(self.settings.rag_context_max_chars, 3600))
+            self._remember_range_context(course_id, page_start, page_end, chapter_title, context, chunks, warnings)
         if not context:
             answer = "当前页码范围内未找到明确依据。"
         else:
@@ -611,6 +758,118 @@ class LearningAIService:
             "page_range": {"page_start": page_start, "page_end": page_end},
             "warnings": warnings,
         }
+
+    def _get_markdown_documents_cached(self, course_id: str) -> tuple[dict[str, Any], list[Any]]:
+        material = self.get_material(course_id)
+        markdown_path = self.materials_registry.resolve_markdown_path(course_id)
+        signature = _file_signature(markdown_path)
+        with self._init_lock:
+            cached = self._markdown_pages_cache.get(course_id)
+            if cached and cached.signature == signature:
+                self._markdown_pages_cache[course_id] = MarkdownPageCacheEntry(
+                    signature=cached.signature,
+                    material=cached.material,
+                    documents=cached.documents,
+                    created_at=cached.created_at,
+                    last_used=time(),
+                )
+                return dict(cached.material), cached.documents
+
+        documents = self.markdown_loader.load_markdown(
+            file_path=str(markdown_path),
+            course_id=course_id,
+            chapter_title=material.get("chapter_title") or None,
+        )
+        cached_material = {**material, "page_count": len(documents), "file_type": "markdown"}
+        with self._init_lock:
+            self._markdown_pages_cache[course_id] = MarkdownPageCacheEntry(
+                signature=signature,
+                material=cached_material,
+                documents=documents,
+                created_at=time(),
+                last_used=time(),
+            )
+            self._prune_markdown_cache()
+        return dict(cached_material), documents
+
+    def _prune_markdown_cache(self, max_entries: int = 8, ttl_seconds: int = 900) -> None:
+        now = time()
+        expired = [
+            key for key, entry in self._markdown_pages_cache.items() if now - entry.last_used > ttl_seconds
+        ]
+        for key in expired:
+            self._markdown_pages_cache.pop(key, None)
+        if len(self._markdown_pages_cache) <= max_entries:
+            return
+        by_last_used = sorted(self._markdown_pages_cache.items(), key=lambda item: item[1].last_used)
+        for key, _entry in by_last_used[: max(0, len(self._markdown_pages_cache) - max_entries)]:
+            self._markdown_pages_cache.pop(key, None)
+
+    def _get_range_context_memory(
+        self,
+        course_id: str,
+        page_start: int,
+        page_end: int,
+        chapter_title: str | None,
+        min_chunks: int,
+        ttl_seconds: int = 600,
+    ) -> tuple[str, list[SourceChunk], list[str]] | None:
+        key = _range_context_key(course_id, page_start, page_end, chapter_title)
+        now = time()
+        with self._init_lock:
+            entry = self._range_context_cache.get(key)
+            if not entry:
+                return None
+            if now - entry.last_used > ttl_seconds or len(entry.chunks) < min_chunks:
+                self._range_context_cache.pop(key, None)
+                return None
+            refreshed = RangeContextCacheEntry(
+                context=entry.context,
+                chunks=entry.chunks,
+                warnings=entry.warnings,
+                created_at=entry.created_at,
+                last_used=now,
+            )
+            self._range_context_cache[key] = refreshed
+            return refreshed.context, refreshed.chunks, list(refreshed.warnings)
+
+    def _remember_range_context(
+        self,
+        course_id: str,
+        page_start: int,
+        page_end: int,
+        chapter_title: str | None,
+        context: str,
+        chunks: list[SourceChunk],
+        warnings: list[str],
+    ) -> None:
+        if not context or context == NO_RANGE_CONTENT_MESSAGE or not chunks:
+            return
+        key = _range_context_key(course_id, page_start, page_end, chapter_title)
+        clipped_context = _clip_memory_context(context)
+        now = time()
+        with self._init_lock:
+            self._range_context_cache[key] = RangeContextCacheEntry(
+                context=clipped_context,
+                chunks=chunks,
+                warnings=list(warnings),
+                created_at=now,
+                last_used=now,
+            )
+            self._prune_range_context_cache()
+
+    def _prune_range_context_cache(self, max_entries: int = 24, ttl_seconds: int = 600) -> None:
+        now = time()
+        expired = [
+            key for key, entry in self._range_context_cache.items() if now - entry.last_used > ttl_seconds
+        ]
+        for key in expired:
+            self._range_context_cache.pop(key, None)
+        if len(self._range_context_cache) <= max_entries:
+            return
+        by_last_used = sorted(self._range_context_cache.items(), key=lambda item: item[1].last_used)
+        for key, _entry in by_last_used[: max(0, len(self._range_context_cache) - max_entries)]:
+            self._range_context_cache.pop(key, None)
 
     def _selection_page_context(
         self,
@@ -683,6 +942,25 @@ def _quiz_context_limit(configured_limit: int, question_count: int) -> int:
     return _context_limit(configured_limit, desired)
 
 
+def _page_span(page_start: int, page_end: int) -> int:
+    return max(1, page_end - page_start + 1)
+
+
+def _range_context_key(
+    course_id: str,
+    page_start: int,
+    page_end: int,
+    chapter_title: str | None,
+) -> tuple[str, str, int, int]:
+    return (course_id, chapter_title or "", page_start, page_end)
+
+
+def _clip_memory_context(context: str, max_chars: int = 7000) -> str:
+    if len(context) <= max_chars:
+        return context
+    return context[: max(0, max_chars - 4)].rstrip() + "\n..."
+
+
 def _new_warnings(existing: list[str], candidates: list[str]) -> list[str]:
     return [warning for warning in candidates if warning not in existing]
 
@@ -690,5 +968,21 @@ def _new_warnings(existing: list[str], candidates: list[str]) -> list[str]:
 def _report_progress(progress_callback: ProgressCallback | None, value: float, message: str) -> None:
     if progress_callback is not None:
         progress_callback(value, message)
+
+
+def _file_signature(path: Path) -> tuple[str, int, int]:
+    stat = path.stat()
+    return (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+
+
+def _markdown_preview(text: str, max_chars: int = 160) -> str:
+    compact = " ".join(
+        text.replace("```", " ")
+        .replace("#", " ")
+        .replace("*", " ")
+        .replace("`", " ")
+        .split()
+    )
+    return compact[:max_chars]
 
 
