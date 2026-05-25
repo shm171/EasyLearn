@@ -9,6 +9,8 @@ def test_reader_web_files_exist() -> None:
         "reader_web/src/components/ContextMenu.jsx",
         "reader_web/src/components/PageRangeTool.jsx",
         "reader_web/src/components/QuizAnswerModule.jsx",
+        "reader_web/src/components/FloatingToolbox.jsx",
+        "reader_web/src/components/ReaderPageManager.jsx",
     ]
 
     for file in required_files:
@@ -52,24 +54,26 @@ def test_ai_side_panel_collapses_sources_by_default() -> None:
 
 
 def test_reader_supports_body_page_and_bookmark_navigation() -> None:
+    app = Path("reader_web/src/App.jsx").read_text(encoding="utf-8")
     reader = Path("reader_web/src/components/PdfReader.jsx").read_text(encoding="utf-8")
+    toolbox = Path("reader_web/src/components/FloatingToolbox.jsx").read_text(encoding="utf-8")
+    manager = Path("reader_web/src/components/ReaderPageManager.jsx").read_text(encoding="utf-8")
     styles = Path("reader_web/src/styles.css").read_text(encoding="utf-8")
 
-    assert "READER_MARKS_STORAGE_PREFIX" in reader
-    assert "标为正文首页" in reader
-    assert "回正文首页" in reader
-    assert "添加当前页面为书签" in reader
-    assert "跳转到指定书签" in reader
-    assert 'event.key === "Tab"' in reader
-    assert "event.altKey" in reader
-    assert "readerMarks.bookmarks[Number(event.key) - 1]" in reader
-    assert "isEditableShortcutTarget" in reader
-    assert "reader-nav-card" in styles
-    assert "reader-nav-strip" in styles
+    assert "FloatingToolbox" in app
+    assert "ReaderPageManager" in toolbox
+    assert "PageRangeTool" in toolbox
+    assert "READER_MARKS_STORAGE_PREFIX" in manager
+    assert "标为正文首页" in manager
+    assert "回正文首页" in manager
+    assert "添加当前页为书签" in manager
+    assert "跳转到指定书签" in manager
+    assert 'event.key === "Tab"' in manager
+    assert "event.altKey" in manager
+    assert "readerMarks.bookmarks[Number(event.key) - 1]" in manager
+    assert "isEditableShortcutTarget" in manager
+    assert "reader-page-manager" in styles
+    assert "floating-toolbox" in styles
+    assert "toolbox-panel" in styles
     assert "body-jump-form" in styles
-    toolbar_block = reader.split('<Document', maxsplit=1)[0]
-    thumbnail_block = reader.split("function ThumbnailRail", maxsplit=1)[1].split(
-        "function ReaderNavPanel", maxsplit=1
-    )[0]
-    assert "ReaderNavPanel" in toolbar_block
-    assert "ReaderNavPanel" not in thumbnail_block
+    assert "ReaderPageManager" not in reader

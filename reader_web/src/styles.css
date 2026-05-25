@@ -283,13 +283,6 @@ textarea {
   font-weight: 700;
 }
 
-.reader-nav-strip {
-  min-width: 0;
-  padding: 8px 12px 6px;
-  border-bottom: 1px solid #e2e7eb;
-  background: #f8fafb;
-}
-
 .pdf-stage {
   flex: 1;
   min-height: 0;
@@ -337,42 +330,54 @@ textarea {
   font-weight: 700;
 }
 
-.reader-nav-card {
-  width: 100%;
-  max-width: 100%;
+.reader-page-manager {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  display: grid;
+  gap: 10px;
 }
 
-.reader-nav-head {
+.reader-manager-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reader-manager-head div {
   min-width: 128px;
-  max-width: 210px;
   display: grid;
   gap: 2px;
 }
 
-.reader-nav-head strong {
+.reader-manager-head strong {
   color: #12343b;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.25;
 }
 
-.reader-nav-head small {
+.reader-manager-head span,
+.reader-manager-head small {
   color: #69757f;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
+}
+
+.reader-manager-head span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.reader-nav-actions {
-  display: inline-flex;
-  align-items: center;
+.reader-manager-head small {
+  flex: 0 0 auto;
+  max-width: 128px;
+  text-align: right;
+}
+
+.manager-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -408,7 +413,7 @@ textarea {
 
 .body-jump-form {
   display: grid;
-  grid-template-columns: 72px 38px;
+  grid-template-columns: minmax(0, 1fr) 76px;
   gap: 5px;
 }
 
@@ -426,23 +431,12 @@ textarea {
 }
 
 .bookmark-select-label {
-  min-width: 138px;
-  max-width: 220px;
+  min-width: 0;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 5px;
   color: #176b5b;
-}
-
-.reader-shortcuts {
-  flex: 0 0 auto;
-  color: #69757f;
-  font-size: 10px;
-  line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .thumbnail-list {
@@ -1189,14 +1183,14 @@ textarea {
   font-weight: 700;
 }
 
-.floating-range {
+.floating-toolbox {
   position: fixed;
   z-index: 35;
 }
 
-.floating-range-button {
-  width: 68px;
-  height: 68px;
+.toolbox-button {
+  width: 66px;
+  height: 66px;
   display: grid;
   place-items: center;
   gap: 2px;
@@ -1208,15 +1202,24 @@ textarea {
   font-weight: 800;
   user-select: none;
   touch-action: none;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
 }
 
-.floating-range-button span {
+.toolbox-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 40px rgba(17, 42, 37, 0.32);
+}
+
+.toolbox-button span {
   font-size: 13px;
 }
 
-.floating-range-card {
+.toolbox-card {
   width: min(420px, calc(100vw - 24px));
-  max-height: min(680px, calc(100vh - 110px));
+  max-height: min(720px, calc(100vh - 110px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1224,9 +1227,10 @@ textarea {
   border-radius: 10px;
   background: #ffffff;
   box-shadow: 0 20px 52px rgba(19, 34, 39, 0.24);
+  animation: toolbox-pop 180ms ease both;
 }
 
-.floating-range-head {
+.toolbox-head {
   min-height: 58px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1241,34 +1245,95 @@ textarea {
   touch-action: none;
 }
 
-.floating-range-head:active {
+.toolbox-head:active {
   cursor: grabbing;
 }
 
-.floating-range-head div {
+.toolbox-head div {
   min-width: 0;
   display: grid;
   gap: 2px;
 }
 
-.floating-range-head span {
+.toolbox-head span {
   color: #69757f;
   font-size: 12px;
 }
 
-.floating-range-card .range-tool {
+.toolbox-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e0e7e5;
+  background: #fbfcfc;
+}
+
+.toolbox-tabs button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #c7d0d8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4a535a;
+  font-weight: 800;
+}
+
+.toolbox-tabs button.active {
+  border-color: #8ab9ae;
+  background: #e7f3ef;
+  color: #176b5b;
+  box-shadow: inset 0 0 0 1px rgba(23, 107, 91, 0.08);
+}
+
+.toolbox-panel {
+  min-height: 0;
+  overflow: auto;
+  animation: toolbox-panel-in 160ms ease both;
+}
+
+.toolbox-panel .range-tool {
   overflow: auto;
   border: 0;
   border-radius: 0;
   padding: 12px;
 }
 
-.floating-range-card .segmented {
+.toolbox-panel .segmented {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.floating-range-card textarea {
+.toolbox-panel textarea {
   min-height: 92px;
+}
+
+.toolbox-panel .reader-page-manager {
+  padding: 12px;
+}
+
+@keyframes toolbox-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toolbox-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .quiz-options {
@@ -1451,10 +1516,6 @@ textarea {
     justify-content: center;
   }
 
-  .reader-nav-card {
-    justify-content: center;
-  }
-
   .segmented,
   .range-grid,
   .range-presets,
@@ -1462,7 +1523,7 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .floating-range-card {
+  .toolbox-card {
     width: min(360px, calc(100vw - 24px));
   }
 }

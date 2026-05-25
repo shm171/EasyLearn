@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, FileUp, GripVertical, KeyRound, MessageSquareText, PanelRightOpen, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BookOpen, FileUp, KeyRound, PanelRightOpen } from "lucide-react";
 import {
   askCurrentPage,
   askSelection,
@@ -10,8 +10,8 @@ import {
 import ApiConfigDialog from "./components/ApiConfigDialog.jsx";
 import AiSidePanel from "./components/AiSidePanel.jsx";
 import CourseSelector from "./components/CourseSelector.jsx";
+import FloatingToolbox from "./components/FloatingToolbox.jsx";
 import ImportPdfDialog from "./components/ImportPdfDialog.jsx";
-import PageRangeTool from "./components/PageRangeTool.jsx";
 import PdfReader from "./components/PdfReader.jsx";
 
 const emptyPanel = {
@@ -34,14 +34,6 @@ export default function App() {
   const [panel, setPanel] = useState(emptyPanel);
   const [importOpen, setImportOpen] = useState(false);
   const [apiConfigOpen, setApiConfigOpen] = useState(false);
-  const [rangeOpen, setRangeOpen] = useState(false);
-  const [rangePosition, setRangePosition] = useState(() => {
-    if (typeof window === "undefined") {
-      return { x: 1040, y: 150 };
-    }
-    return { x: Math.max(20, window.innerWidth - 470), y: 150 };
-  });
-  const dragState = useRef(null);
   const progressTimerRef = useRef(null);
 
   const activeCourseId = useMemo(
@@ -49,21 +41,18 @@ export default function App() {
     [manualCourseId, selectedCourseId]
   );
 
+  const goToReaderPage = useCallback(
+    (page) => {
+      setCurrentPage(clamp(page, 1, numPages || 1));
+    },
+    [numPages]
+  );
+
   useEffect(() => {
     refreshMaterials();
   }, []);
 
   useEffect(() => () => clearProgressTimer(), []);
-
-  useEffect(() => {
-    if (!rangeOpen || typeof window === "undefined") {
-      return;
-    }
-    setRangePosition((position) => ({
-      x: clamp(position.x, 12, window.innerWidth - Math.min(420, window.innerWidth - 24) - 12),
-      y: clamp(position.y, 86, window.innerHeight - Math.min(680, window.innerHeight - 110) - 12)
-    }));
-  }, [rangeOpen]);
 
   async function refreshMaterials() {
     setMaterialsLoading(true);
@@ -160,45 +149,6 @@ export default function App() {
       result: null,
       progress: { value: 1, message: "处理失败" }
     }));
-  }
-
-  function startFloatingDrag(event, toggleOnClick = false) {
-    event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
-    dragState.current = {
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
-      startX: event.clientX,
-      startY: event.clientY,
-      moved: false,
-      toggleOnClick
-    };
-    window.addEventListener("pointermove", handleFloatingMove);
-    window.addEventListener("pointerup", handleFloatingUp, { once: true });
-  }
-
-  function handleFloatingMove(event) {
-    const state = dragState.current;
-    if (!state) {
-      return;
-    }
-    const moved = Math.abs(event.clientX - state.startX) + Math.abs(event.clientY - state.startY) > 6;
-    state.moved = state.moved || moved;
-    const width = rangeOpen ? 420 : 64;
-    const height = rangeOpen ? 520 : 64;
-    setRangePosition({
-      x: clamp(event.clientX - state.offsetX, 12, window.innerWidth - width - 12),
-      y: clamp(event.clientY - state.offsetY, 86, window.innerHeight - height - 12)
-    });
-  }
-
-  function handleFloatingUp() {
-    const state = dragState.current;
-    window.removeEventListener("pointermove", handleFloatingMove);
-    dragState.current = null;
-    if (state?.toggleOnClick && !state.moved) {
-      setRangeOpen((open) => !open);
-    }
   }
 
   async function handleContextAction(action, selectedText) {
@@ -315,48 +265,15 @@ export default function App() {
         </div>
         <AiSidePanel panel={panel} />
       </main>
-      <div
-        className={`floating-range${rangeOpen ? " open" : ""}`}
-        style={{ left: rangePosition.x, top: rangePosition.y }}
-      >
-        {rangeOpen ? (
-          <section className="floating-range-card">
-            <div className="floating-range-head" onPointerDown={(event) => startFloatingDrag(event)}>
-              <GripVertical size={18} />
-              <div>
-                <strong>页面问答</strong>
-                <span>拖动这里调整位置</span>
-              </div>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setRangeOpen(false)}
-                title="关闭页面问答"
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <PageRangeTool
-              courseId={activeCourseId}
-              currentPage={currentPage}
-              totalPages={numPages}
-              onStart={(label, progressKind) => startPanel(label, "", progressKind)}
-              onResult={finishPanel}
-              onError={failPanel}
-            />
-          </section>
-        ) : (
-          <button
-            type="button"
-            className="floating-range-button"
-            onPointerDown={(event) => startFloatingDrag(event, true)}
-            title="页面问答"
-          >
-            <MessageSquareText size={24} />
-            <span>页问</span>
-          </button>
-        )}
-      </div>
+      <FloatingToolbox
+        courseId={activeCourseId}
+        currentPage={currentPage}
+        totalPages={numPages}
+        onPageChange={goToReaderPage}
+        onStart={(label, progressKind) => startPanel(label, "", progressKind)}
+        onResult={finishPanel}
+        onError={failPanel}
+      />
       <ImportPdfDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
