@@ -49,3 +49,20 @@ def test_ai_side_panel_collapses_sources_by_default() -> None:
     assert "aria-expanded={sourcesOpen}" in panel
     assert "source-toggle.open" in styles
     assert "max-height: 210px" in styles
+
+
+def test_reader_supports_body_page_and_bookmark_navigation() -> None:
+    reader = Path("reader_web/src/components/PdfReader.jsx").read_text(encoding="utf-8")
+    styles = Path("reader_web/src/styles.css").read_text(encoding="utf-8")
+
+    assert "READER_MARKS_STORAGE_PREFIX" in reader
+    assert "标为正文首页" in reader
+    assert "回正文首页" in reader
+    assert "添加当前页面为书签" in reader
+    assert "跳转到指定书签" in reader
+    assert 'event.key === "Tab"' in reader
+    assert "event.altKey" in reader
+    assert "readerMarks.bookmarks[Number(event.key) - 1]" in reader
+    assert "isEditableShortcutTarget" in reader
+    assert "reader-nav-card" in styles
+    assert "body-jump-form" in styles

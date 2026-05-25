@@ -289,7 +289,9 @@ textarea {
 .thumbnail-rail {
   min-height: 0;
   max-height: 100%;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 10px 8px;
   border-right: 1px solid #c9d2d8;
   background: #f7f9fa;
@@ -320,8 +322,121 @@ textarea {
   font-weight: 700;
 }
 
-.thumbnail-list {
+.reader-nav-card {
+  flex: 0 0 auto;
+  max-height: min(228px, 52%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 6px 16px rgba(24, 36, 42, 0.08);
+}
+
+.reader-nav-head {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.reader-nav-head strong {
+  color: #12343b;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.reader-nav-head small {
+  color: #69757f;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-nav-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.reader-nav-button,
+.body-jump-form button {
+  min-width: 0;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid #c7d0d8;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: #f7f9fa;
+  color: #176b5b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.reader-nav-button.primary {
+  border-color: #8ab9ae;
+  background: #e7f3ef;
+}
+
+.reader-nav-button span,
+.body-jump-form button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body-jump-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 5px;
+}
+
+.body-jump-form input,
+.bookmark-select-label select {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  border: 1px solid #c7d0d8;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: #ffffff;
+  color: #202427;
+  font-size: 12px;
+}
+
+.bookmark-select-label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  color: #176b5b;
+}
+
+.reader-shortcuts {
+  color: #69757f;
+  font-size: 10px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thumbnail-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
   gap: 8px;
 }
 
@@ -1326,5 +1441,34 @@ textarea {
 
   .floating-range-card {
     width: min(360px, calc(100vw - 24px));
+  }
+}
+
+@media (max-width: 640px) {
+  .pdf-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .thumbnail-rail {
+    max-height: 238px;
+    border-right: 0;
+    border-bottom: 1px solid #c9d2d8;
+  }
+
+  .reader-nav-card {
+    max-height: none;
+  }
+
+  .thumbnail-list {
+    min-height: 116px;
+    grid-auto-flow: column;
+    grid-auto-columns: 116px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .thumbnail-button {
+    min-height: 100%;
   }
 }
