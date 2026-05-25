@@ -37,3 +37,15 @@ def test_reader_context_menu_supports_copy_and_paste_completion() -> None:
     assert "input.paste" in quiz_module
     assert "startCompletion" in quiz_module
     assert "inferCodeLanguage" in quiz_module
+
+
+def test_ai_side_panel_collapses_sources_by_default() -> None:
+    panel = Path("reader_web/src/components/AiSidePanel.jsx").read_text(encoding="utf-8")
+    styles = Path("reader_web/src/styles.css").read_text(encoding="utf-8")
+
+    assert "useState(false)" in panel
+    assert "setSourcesOpen(false)" in panel
+    assert "source-toggle" in panel
+    assert "aria-expanded={sourcesOpen}" in panel
+    assert "source-toggle.open" in styles
+    assert "max-height: 210px" in styles

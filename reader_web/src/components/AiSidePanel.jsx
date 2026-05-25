@@ -1,5 +1,5 @@
-import { lazy, Suspense } from "react";
-import { AlertCircle, FileText, Loader2 } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { AlertCircle, ChevronDown, FileText, Loader2 } from "lucide-react";
 import { previewText } from "../utils/selection.js";
 
 const QuizAnswerModule = lazy(() => import("./QuizAnswerModule.jsx"));
@@ -156,6 +156,11 @@ export default function AiSidePanel({ panel }) {
   const chunks = panel.result?.source_chunks || [];
   const visibleChunks = chunks.slice(0, 6);
   const warnings = panel.result?.warnings || [];
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
+  useEffect(() => {
+    setSourcesOpen(false);
+  }, [panel.result]);
 
   return (
     <aside className="ai-panel">
@@ -202,23 +207,34 @@ export default function AiSidePanel({ panel }) {
       </div>
 
       {chunks.length ? (
-        <div className="panel-section">
-          <span className="section-label">来源</span>
-          <div className="source-list">
-            {visibleChunks.map((chunk) => (
-              <div
-                className="source-item"
-                key={chunk.chunk_id || `${chunk.page_number}-${chunk.content?.slice(0, 10)}`}
-                title={chunk.chunk_id || ""}
-              >
-                <strong>第 {chunk.page_number || "?"} 页</strong>
-                <span>{compactChunkId(chunk.chunk_id)}</span>
-              </div>
-            ))}
-            {chunks.length > visibleChunks.length ? (
-              <div className="source-more">还有 {chunks.length - visibleChunks.length} 个来源</div>
-            ) : null}
-          </div>
+        <div className="panel-section source-section">
+          <button
+            type="button"
+            className={`source-toggle${sourcesOpen ? " open" : ""}`}
+            onClick={() => setSourcesOpen((value) => !value)}
+            aria-expanded={sourcesOpen}
+          >
+            <span>{sourcesOpen ? "收起来源" : "展开来源"}</span>
+            <strong>{chunks.length} 个来源</strong>
+            <ChevronDown size={16} />
+          </button>
+          {sourcesOpen ? (
+            <div className="source-list" aria-label="来源列表">
+              {visibleChunks.map((chunk) => (
+                <div
+                  className="source-item"
+                  key={chunk.chunk_id || `${chunk.page_number}-${chunk.content?.slice(0, 10)}`}
+                  title={chunk.chunk_id || ""}
+                >
+                  <strong>第 {chunk.page_number || "?"} 页</strong>
+                  <span>{compactChunkId(chunk.chunk_id)}</span>
+                </div>
+              ))}
+              {chunks.length > visibleChunks.length ? (
+                <div className="source-more">还有 {chunks.length - visibleChunks.length} 个来源</div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
