@@ -889,13 +889,20 @@ textarea {
 }
 
 .quiz-grade-error {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
   gap: 7px;
   border: 1px solid #ffd6cc;
   background: #fff0ed;
   color: #b42318;
   font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.quiz-grade-error svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 
 .quiz-grade-summary {

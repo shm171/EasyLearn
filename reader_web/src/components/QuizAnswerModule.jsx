@@ -264,7 +264,7 @@ function codeExtensions(language) {
 }
 
 function normalizeQuestion(question, index = 0) {
-  const questionId = question.question_id || `q${index + 1}`;
+  const questionId = String(question.question_id ?? question.id ?? `q${index + 1}`);
   return {
     ...question,
     question_id: questionId,
@@ -303,19 +303,19 @@ function buildOptions(question) {
 
 function buildGradeResultMap(evaluation) {
   const results = evaluation?.question_results || [];
-  return new Map(results.map((result) => [result.question_id, result]));
+  return new Map(results.map((result) => [String(result.question_id), result]));
 }
 
 function buildEvaluationPayload(quiz, questions, answers) {
   return {
     quiz: {
-      quiz_id: quiz.quiz_id || `reader_quiz_${Date.now()}`,
-      course_id: quiz.course_id || "reader_local",
-      chapter_title: quiz.chapter_title || quiz.quiz_title || "PDF 阅读器练习",
-      programming_language: quiz.programming_language || quiz.language || "text",
+      quiz_id: String(quiz.quiz_id || `reader_quiz_${Date.now()}`),
+      course_id: String(quiz.course_id || "reader_local"),
+      chapter_title: String(quiz.chapter_title || quiz.quiz_title || "PDF 阅读器练习"),
+      programming_language: String(quiz.programming_language || quiz.language || "text"),
       difficulty: normalizeQuizDifficulty(quiz.difficulty),
       questions: questions.map((question, index) => ({
-        question_id: question.question_id || `q${index + 1}`,
+        question_id: String(question.question_id || `q${index + 1}`),
         question_type: normalizeQuestionType(question.question_type, question.options),
         stem: question.stem || question.question || `题目 ${index + 1}`,
         options: normalizeOptionsForSchema(question.options),
@@ -328,7 +328,7 @@ function buildEvaluationPayload(quiz, questions, answers) {
       }))
     },
     user_answers: questions.map((question) => ({
-      question_id: question.question_id,
+      question_id: String(question.question_id),
       answer: String(answers[question.question_id] || "")
     }))
   };
@@ -371,9 +371,12 @@ function cleanErrorMessage(error) {
     if (typeof parsed.detail === "string") {
       return parsed.detail;
     }
-    return parsed.detail ? JSON.stringify(parsed.detail) : message;
+    if (Array.isArray(parsed.detail)) {
+      return "批改请求格式有误，请重新点击“批改”。如果仍失败，可以重新生成这组题目。";
+    }
+    return "批改失败，请稍后重试。";
   } catch {
-    return message;
+    return message.length > 120 ? `${message.slice(0, 120)}...` : message;
   }
 }
 

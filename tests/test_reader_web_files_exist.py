@@ -21,5 +21,6 @@ def test_reader_quiz_module_supports_grading_without_snippet_templates() -> None
 
     assert "evaluateQuiz" in client
     assert "批改" in module
+    assert "String(question.question_id" in module
     assert "codeSnippets" not in module
     assert "snippet-bar" not in module
