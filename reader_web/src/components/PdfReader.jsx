@@ -2,16 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Edit3,
   FileText,
   FileUp,
   Minimize2,
   RefreshCw,
-  Rows3
+  Rows3,
+  Save,
+  X
 } from "lucide-react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { getMarkdownIndex, getMarkdownPage, getPdfUrl } from "../api/client.js";
+import { getMarkdownIndex, getMarkdownPage, getPdfUrl, updateMarkdownPage } from "../api/client.js";
 import { getSelectedText } from "../utils/selection.js";
 import ContextMenu from "./ContextMenu.jsx";
 import ReaderAnnotationLayer from "./ReaderAnnotationLayer.jsx";
@@ -43,6 +46,10 @@ export default function PdfReader({
   const [markdownPageCache, setMarkdownPageCache] = useState({});
   const [markdownLoading, setMarkdownLoading] = useState(false);
   const [markdownPageLoading, setMarkdownPageLoading] = useState(false);
+  const [markdownEditing, setMarkdownEditing] = useState(false);
+  const [markdownDraft, setMarkdownDraft] = useState("");
+  const [markdownSaving, setMarkdownSaving] = useState(false);
+  const [markdownSaveError, setMarkdownSaveError] = useState("");
   const markdownRequestsRef = useRef(new Map());
 
   useEffect(() => {
@@ -52,6 +59,9 @@ export default function PdfReader({
     setMarkdownPageCache({});
     setMarkdownLoading(false);
     setMarkdownPageLoading(false);
+    setMarkdownEditing(false);
+    setMarkdownDraft("");
+    setMarkdownSaveError("");
     markdownRequestsRef.current.clear();
     onPageChange(1);
     onPageInfo(0);
@@ -150,6 +160,12 @@ export default function PdfReader({
     [currentMarkdownPage]
   );
 
+  useEffect(() => {
+    setMarkdownEditing(false);
+    setMarkdownDraft(currentMarkdownPage?.content || "");
+    setMarkdownSaveError("");
+  }, [courseId, currentPage, currentMarkdownPage?.content]);
+
   function goToPage(nextPage) {
     const bounded = Math.min(Math.max(nextPage, 1), numPages || 1);
     onPageChange(bounded);
@@ -173,6 +189,43 @@ export default function PdfReader({
     });
   }
 
+  async function saveMarkdownEdit() {
+    if (!courseId || !currentMarkdownPage || markdownSaving) {
+      return;
+    }
+    setMarkdownSaving(true);
+    setMarkdownSaveError("");
+    try {
+      const result = await updateMarkdownPage(courseId, currentPage, markdownDraft);
+      const updatedPage = result.page;
+      if (updatedPage) {
+        setMarkdownPageCache((current) => ({ ...current, [String(updatedPage.page_number || currentPage)]: updatedPage }));
+        setMarkdownPages((current) => {
+          const nextPages = [...current];
+          const index = Math.max(0, Number(updatedPage.page_number || currentPage) - 1);
+          nextPages[index] = {
+            ...(nextPages[index] || {}),
+            page_number: updatedPage.page_number || currentPage,
+            title: updatedPage.title,
+            preview: updatedPage.preview,
+            char_count: updatedPage.char_count
+          };
+          return nextPages;
+        });
+        setMarkdownDraft(updatedPage.content || markdownDraft);
+      }
+      const nextPageCount = Number(result.page_count || numPages || 0);
+      setNumPages(nextPageCount);
+      onPageInfo(nextPageCount);
+      onRefresh?.();
+      setMarkdownEditing(false);
+    } catch (error) {
+      setMarkdownSaveError(error.message);
+    } finally {
+      setMarkdownSaving(false);
+    }
+  }
+
   if (!courseId) {
     return (
       <div className="empty-reader">
@@ -193,7 +246,45 @@ export default function PdfReader({
 
   const shell = isMarkdown ? (
     <section className="reader-shell markdown-reader-shell">
-      <ReaderToolbar currentPage={currentPage} numPages={numPages} onPageSelect={goToPage} />
+      <ReaderToolbar
+        currentPage={currentPage}
+        numPages={numPages}
+        material={material}
+        fileType={fileType}
+        onPageSelect={goToPage}
+        actions={
+          currentMarkdownPage ? (
+            <div className="markdown-edit-actions">
+              {markdownEditing ? (
+                <>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      setMarkdownDraft(currentMarkdownPage.content || "");
+                      setMarkdownEditing(false);
+                      setMarkdownSaveError("");
+                    }}
+                    disabled={markdownSaving}
+                  >
+                    <X size={16} />
+                    <span>取消</span>
+                  </button>
+                  <button type="button" className="primary-button" onClick={saveMarkdownEdit} disabled={markdownSaving}>
+                    <Save size={16} />
+                    <span>{markdownSaving ? "保存中" : "保存"}</span>
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="secondary-button" onClick={() => setMarkdownEditing(true)}>
+                  <Edit3 size={16} />
+                  <span>编辑</span>
+                </button>
+              )}
+            </div>
+          ) : null
+        }
+      />
       {markdownLoading ? <div className="pdf-status">正在加载 Markdown...</div> : null}
       {!markdownLoading ? (
         <div className="pdf-body markdown-body">
@@ -207,15 +298,33 @@ export default function PdfReader({
           <div className="pdf-stage markdown-stage" onContextMenu={handleContextMenu}>
             {currentMarkdownPage ? (
               <div className="annotation-surface">
-                <article className="markdown-page" aria-label={`Markdown 第 ${currentPage} 页`}>
-                  {renderedMarkdownPage}
-                </article>
-                <ReaderAnnotationLayer
-                  enabled={Boolean(annotationSettings?.enabled)}
-                  settings={annotationSettings}
-                  annotations={pageAnnotations}
-                  onChange={onPageAnnotationsChange}
-                />
+                {markdownEditing ? (
+                  <textarea
+                    className="markdown-page markdown-editor"
+                    value={markdownDraft}
+                    onChange={(event) => setMarkdownDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+                        event.preventDefault();
+                        saveMarkdownEdit();
+                      }
+                    }}
+                    spellCheck={false}
+                    aria-label={`编辑 Markdown 第 ${currentPage} 页`}
+                  />
+                ) : (
+                  <article className="markdown-page" aria-label={`Markdown 第 ${currentPage} 页`}>
+                    {renderedMarkdownPage}
+                  </article>
+                )}
+                {!markdownEditing ? (
+                  <ReaderAnnotationLayer
+                    enabled={Boolean(annotationSettings?.enabled)}
+                    settings={annotationSettings}
+                    annotations={pageAnnotations}
+                    onChange={onPageAnnotationsChange}
+                  />
+                ) : null}
               </div>
             ) : markdownPageLoading ? (
               <div className="pdf-status">正在加载当前页...</div>
@@ -223,13 +332,20 @@ export default function PdfReader({
               <div className="pdf-status">当前页暂无内容</div>
             )}
             {loadError ? <div className="pdf-load-error">{loadError}</div> : null}
+            {markdownSaveError ? <div className="pdf-load-error">{markdownSaveError}</div> : null}
           </div>
         </div>
       ) : null}
     </section>
   ) : (
     <section className="reader-shell">
-      <ReaderToolbar currentPage={currentPage} numPages={numPages} onPageSelect={goToPage} />
+      <ReaderToolbar
+        currentPage={currentPage}
+        numPages={numPages}
+        material={material}
+        fileType={fileType}
+        onPageSelect={goToPage}
+      />
       <Document
         key={courseId}
         file={getPdfUrl(courseId)}
@@ -291,31 +407,40 @@ export default function PdfReader({
   );
 }
 
-function ReaderToolbar({ currentPage, numPages, onPageSelect }) {
+function ReaderToolbar({ currentPage, numPages, material, fileType, actions, onPageSelect }) {
+  const materialName = material?.course_id || material?.file_name || "未选择资料";
+  const typeLabel = fileType === "markdown" ? "Markdown" : "PDF";
   return (
     <div className="reader-toolbar">
-      <div className="reader-page-controls">
-        <button
-          type="button"
-          className="icon-text-button"
-          onClick={() => onPageSelect(currentPage - 1)}
-          disabled={currentPage <= 1}
-        >
-          <ChevronLeft size={18} />
-          <span>上一页</span>
-        </button>
-        <div className="page-meter">
-          第 {currentPage} 页 / 共 {numPages || "-"} 页
+      <div className="reader-toolbar-main">
+        <div className="reader-page-controls">
+          <button
+            type="button"
+            className="icon-text-button"
+            onClick={() => onPageSelect(currentPage - 1)}
+            disabled={currentPage <= 1}
+          >
+            <ChevronLeft size={18} />
+            <span>上一页</span>
+          </button>
+          <div className="page-meter">
+            第 {currentPage} 页 / 共 {numPages || "-"} 页
+          </div>
+          <button
+            type="button"
+            className="icon-text-button"
+            onClick={() => onPageSelect(currentPage + 1)}
+            disabled={!numPages || currentPage >= numPages}
+          >
+            <ChevronRight size={18} />
+            <span>下一页</span>
+          </button>
         </div>
-        <button
-          type="button"
-          className="icon-text-button"
-          onClick={() => onPageSelect(currentPage + 1)}
-          disabled={!numPages || currentPage >= numPages}
-        >
-          <ChevronRight size={18} />
-          <span>下一页</span>
-        </button>
+        {actions ? <div className="reader-toolbar-actions">{actions}</div> : null}
+      </div>
+      <div className="reader-toolbar-meta">
+        <span>{materialName}</span>
+        <span>{typeLabel}{numPages ? ` · 共 ${numPages} 页` : ""}</span>
       </div>
     </div>
   );

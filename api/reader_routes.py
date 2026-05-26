@@ -37,6 +37,12 @@ class ApiTestPayload(BaseModel):
     message: str = "请用一句中文回复：API 配置成功。"
 
 
+class MarkdownPageUpdatePayload(BaseModel):
+    """Payload for editing one virtual Markdown page."""
+
+    content: str = Field(default="", max_length=200_000)
+
+
 def _safe_slug(value: str, default: str = "pdf") -> str:
     slug = re.sub(r"[^0-9A-Za-z_\-\u4e00-\u9fff]+", "_", value).strip("._-")
     return slug or default
@@ -170,6 +176,34 @@ def get_material(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.delete("/materials/{course_id}")
+def close_material(
+    course_id: str,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Close one imported material and remove its local reader/index data."""
+
+    try:
+        return service.close_material(course_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/materials/{course_id}/index-status")
+def get_material_index_status(
+    course_id: str,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Return background AI-indexing progress for one imported material."""
+
+    try:
+        return service.get_material_index_status(course_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/pdf/{course_id}")
 def get_pdf(
     course_id: str,
@@ -232,6 +266,23 @@ def get_markdown_page(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.put("/markdown/{course_id}/pages/{page_number}")
+def update_markdown_page(
+    course_id: str,
+    page_number: int,
+    payload: MarkdownPageUpdatePayload,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Save edits to one virtual Markdown page."""
+
+    try:
+        return service.update_markdown_page(course_id, page_number, payload.content)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/materials/import")
 def import_local_material(
     course_id: str = Form(...),
@@ -262,19 +313,12 @@ def import_local_material(
     try:
         with target_path.open("wb") as output:
             shutil.copyfileobj(file.file, output)
-        if file_type == "pdf":
-            ingest_result = service.ingest_pdf(
-                course_id=course_id.strip(),
-                file_path=str(target_path),
-                chapter_title=chapter_title or None,
-            )
-        else:
-            ingest_result = service.ingest_markdown(
-                course_id=course_id.strip(),
-                file_path=str(target_path),
-                chapter_title=chapter_title or None,
-            )
-        material = service.get_material(course_id.strip())
+        material, ingest_result, index_status = service.import_reader_material(
+            course_id=course_id.strip(),
+            file_path=str(target_path),
+            file_type=file_type,
+            chapter_title=chapter_title or None,
+        )
     except Exception as exc:
         if target_path.exists():
             target_path.unlink(missing_ok=True)
@@ -286,6 +330,7 @@ def import_local_material(
         "message": f"{file_type.upper() if file_type == 'pdf' else 'Markdown'} imported successfully.",
         "material": material,
         "ingest_result": ingest_result.model_dump(),
+        "index_status": index_status,
     }
 
 

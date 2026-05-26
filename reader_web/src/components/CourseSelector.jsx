@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, XCircle } from "lucide-react";
 
 export default function CourseSelector({
   materials,
@@ -8,7 +8,8 @@ export default function CourseSelector({
   error,
   onSelect,
   onManualChange,
-  onRefresh
+  onRefresh,
+  onCloseSelected
 }) {
   return (
     <div className="course-selector">
@@ -25,6 +26,8 @@ export default function CourseSelector({
             materials.map((material) => (
               <option key={material.course_id} value={material.course_id}>
                 {material.course_id} · {material.file_name} · {material.file_type === "markdown" ? "Markdown" : "PDF"}
+                {material.index_status === "indexing" ? " · 索引中" : ""}
+                {material.index_status === "failed" ? " · 索引失败" : ""}
               </option>
             ))
           )}
@@ -40,6 +43,15 @@ export default function CourseSelector({
       </label>
       <button type="button" className="icon-button refresh-button" onClick={onRefresh} title="刷新材料列表">
         <RefreshCw size={18} />
+      </button>
+      <button
+        type="button"
+        className="icon-button close-material-button"
+        onClick={onCloseSelected}
+        disabled={loading || !selectedCourseId}
+        title="关闭当前导入资料"
+      >
+        <XCircle size={18} />
       </button>
       {error ? <span className="toolbar-error">{error}</span> : null}
     </div>

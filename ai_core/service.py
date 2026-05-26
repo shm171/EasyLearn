@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 from threading import RLock, Thread
-from time import perf_counter, time
+from time import perf_counter, sleep, time
 from typing import Any
 
 from ai_core.agents.range_agent import RangeLearningAgent
@@ -94,6 +94,8 @@ class LearningAIService:
         self._checkpointer: Any | None = None
         self._markdown_pages_cache: dict[str, MarkdownPageCacheEntry] = {}
         self._range_context_cache: dict[tuple[str, str, int, int], RangeContextCacheEntry] = {}
+        self._index_jobs: dict[str, dict[str, Any]] = {}
+        self._index_lock = RLock()
         self._init_lock = RLock()
         self._warm_up_lock = RLock()
         self._warm_up_thread: Thread | None = None
@@ -226,11 +228,135 @@ class LearningAIService:
                 "deepseek_api_key_set": bool(self.settings.deepseek_api_key),
             }
 
+    def import_reader_material(
+        self,
+        course_id: str,
+        file_path: str,
+        file_type: str,
+        chapter_title: str | None = None,
+    ) -> tuple[dict[str, Any], PDFIngestResult, dict[str, Any]]:
+        """Register a material for reading now and build its AI index in the background."""
+
+        if file_type == "pdf":
+            page_count = self.pdf_loader.get_page_count(file_path)
+            material = self.materials_registry.register_pdf(
+                course_id=course_id,
+                file_path=file_path,
+                chapter_title=chapter_title,
+                page_count=page_count,
+            )
+            documents: list[Any] | None = None
+            file_name = Path(file_path).name
+        else:
+            documents = self._load_material_documents(course_id, file_path, file_type, chapter_title)
+            first_meta = documents[0].metadata
+            page_count = len(documents)
+            material = self.materials_registry.register_markdown(
+                course_id=course_id,
+                file_path=file_path,
+                chapter_title=chapter_title,
+                page_count=page_count,
+            )
+            self._remember_markdown_documents(course_id, material, documents)
+            file_name = str(first_meta.get("file_name", ""))
+
+        material = self.materials_registry.update_index_status(course_id, "queued", chunk_count=0)
+        self._set_index_job(
+            course_id,
+            status="queued",
+            progress=0.18,
+            message="Reader is ready. AI index will build when needed.",
+            chunk_count=0,
+        )
+        result = PDFIngestResult(
+            course_id=course_id,
+            file_path=file_path,
+            file_name=file_name,
+            file_type="markdown" if file_type == "markdown" else "pdf",
+            chapter_title=chapter_title,
+            page_count=page_count,
+            chunk_count=0,
+            message="Material opened. AI index is queued.",
+        )
+        return material, result, self.get_material_index_status(course_id)
+
+    def get_material_index_status(self, course_id: str) -> dict[str, Any]:
+        """Return the current background indexing status for one imported material."""
+
+        material = self.get_material(course_id)
+        with self._index_lock:
+            job = dict(self._index_jobs.get(course_id, {}))
+        status = job.get("status") or material.get("index_status") or "ready"
+        progress = float(job.get("progress") if "progress" in job else (1.0 if status == "ready" else 0.0))
+        return {
+            "course_id": course_id,
+            "status": status,
+            "progress": max(0.0, min(1.0, progress)),
+            "message": job.get("message") or _index_status_message(status),
+            "chunk_count": job.get("chunk_count", material.get("indexed_chunk_count") or 0),
+            "error": job.get("error") or material.get("index_error") or "",
+        }
+
+    def close_material(self, course_id: str, delete_file: bool = True) -> dict[str, Any]:
+        """Close an imported material and remove its local reader/index data."""
+
+        material = self.materials_registry.unregister_material(course_id, delete_file=delete_file)
+        with self._index_lock:
+            self._index_jobs.pop(course_id, None)
+        with self._init_lock:
+            self._markdown_pages_cache.pop(course_id, None)
+            self._range_context_cache = {
+                key: value for key, value in self._range_context_cache.items() if key[0] != course_id
+            }
+            knowledge_base = self._knowledge_base
+        if knowledge_base is not None:
+            Thread(target=self._delete_course_chunks, args=(course_id, knowledge_base), daemon=True).start()
+        return {
+            "message": "Material closed.",
+            "material": material,
+            "deleted_chunks": 0,
+        }
+
+    def ensure_material_indexed(self, course_id: str) -> None:
+        """Build a queued material index synchronously before an AI retrieval needs it."""
+
+        try:
+            material = self.get_material(course_id)
+        except KeyError:
+            return
+        if material.get("index_status") == "ready":
+            return
+        file_type = str(material.get("file_type") or "pdf")
+        file_path = str(self.materials_registry.resolve_material_path(course_id, expected_type=file_type))
+        chapter_title = material.get("chapter_title") or None
+        self._set_index_job(
+            course_id,
+            status="indexing",
+            progress=0.34,
+            message="Building the AI index for this material.",
+            chunk_count=0,
+        )
+        self.materials_registry.update_index_status(course_id, "indexing", chunk_count=0)
+        try:
+            documents = self._load_material_documents(course_id, file_path, file_type, chapter_title)
+            self._index_material_documents(course_id, file_path, file_type, chapter_title, documents)
+        except Exception as exc:
+            self.materials_registry.update_index_status(course_id, "failed", error=str(exc))
+            self._set_index_job(
+                course_id,
+                status="failed",
+                progress=1.0,
+                message="AI index failed.",
+                error=str(exc),
+            )
+            raise
+
     def ingest_pdf(self, course_id: str, file_path: str, chapter_title: str | None = None) -> PDFIngestResult:
         """Read, chunk, and store a PDF in the local vector database."""
 
         documents = self.pdf_loader.load_pdf(file_path=file_path, course_id=course_id, chapter_title=chapter_title)
         chunks = self.text_splitter.split_documents(documents)
+        self.knowledge_base.delete_course(course_id)
         self.knowledge_base.add_documents(chunks)
         first_meta = documents[0].metadata
         result = PDFIngestResult(
@@ -249,6 +375,7 @@ class LearningAIService:
                 chapter_title=chapter_title,
                 page_count=result.page_count,
             )
+            self.materials_registry.update_index_status(course_id, "ready", chunk_count=result.chunk_count)
         except Exception as exc:
             logger.warning("PDF imported but was not registered for the reader: %s", exc)
         return result
@@ -258,6 +385,7 @@ class LearningAIService:
 
         documents = self.markdown_loader.load_markdown(file_path=file_path, course_id=course_id, chapter_title=chapter_title)
         chunks = self.text_splitter.split_documents(documents)
+        self.knowledge_base.delete_course(course_id)
         self.knowledge_base.add_documents(chunks)
         first_meta = documents[0].metadata
         result = PDFIngestResult(
@@ -277,13 +405,147 @@ class LearningAIService:
                 chapter_title=chapter_title,
                 page_count=result.page_count,
             )
+            self.materials_registry.update_index_status(course_id, "ready", chunk_count=result.chunk_count)
         except Exception as exc:
             logger.warning("Markdown imported but was not registered for the reader: %s", exc)
         return result
 
+    def _load_material_documents(
+        self,
+        course_id: str,
+        file_path: str,
+        file_type: str,
+        chapter_title: str | None,
+    ) -> list[Any]:
+        normalized_type = file_type.strip().lower()
+        if normalized_type == "pdf":
+            return self.pdf_loader.load_pdf(file_path=file_path, course_id=course_id, chapter_title=chapter_title)
+        if normalized_type == "markdown":
+            return self.markdown_loader.load_markdown(
+                file_path=file_path,
+                course_id=course_id,
+                chapter_title=chapter_title,
+            )
+        raise ValueError(f"Unsupported material file_type: {file_type}")
+
+    def _index_material_documents(
+        self,
+        course_id: str,
+        file_path: str,
+        file_type: str,
+        chapter_title: str | None,
+        documents: list[Any] | None,
+    ) -> None:
+        try:
+            if documents is None:
+                self._set_index_job(course_id, status="indexing", progress=0.42, message="Extracting PDF text.")
+                documents = self._load_material_documents(course_id, file_path, file_type, chapter_title)
+            self._set_index_job(course_id, status="indexing", progress=0.48, message="Splitting material text.")
+            chunks = self.text_splitter.split_documents(documents)
+            self._set_index_job(
+                course_id,
+                status="indexing",
+                progress=0.66,
+                message=f"Writing {len(chunks)} chunks to the AI index.",
+                chunk_count=len(chunks),
+            )
+            if not self._material_exists(course_id):
+                return
+            self.knowledge_base.delete_course(course_id)
+            self.knowledge_base.add_documents(chunks)
+            if not self._material_exists(course_id):
+                self.knowledge_base.delete_course(course_id)
+                with self._index_lock:
+                    self._index_jobs.pop(course_id, None)
+                return
+            self.materials_registry.update_index_status(course_id, "ready", chunk_count=len(chunks))
+            if file_type == "markdown":
+                try:
+                    material = self.get_material(course_id)
+                    self._remember_markdown_documents(course_id, material, documents)
+                except Exception:
+                    logger.debug("Markdown cache refresh failed after indexing %s", course_id, exc_info=True)
+            self._set_index_job(
+                course_id,
+                status="ready",
+                progress=1.0,
+                message="AI index is ready.",
+                chunk_count=len(chunks),
+            )
+        except Exception as exc:
+            logger.warning("Failed to index material %s from %s: %s", course_id, file_path, exc)
+            try:
+                self.materials_registry.update_index_status(course_id, "failed", error=str(exc))
+            except Exception:
+                logger.debug("Failed to persist index failure for %s", course_id, exc_info=True)
+            self._set_index_job(
+                course_id,
+                status="failed",
+                progress=1.0,
+                message="AI index failed.",
+                error=str(exc),
+            )
+
+    def _start_index_thread(
+        self,
+        course_id: str,
+        file_path: str,
+        file_type: str,
+        chapter_title: str | None,
+        documents: list[Any] | None,
+        delay_seconds: float = 1.25,
+    ) -> None:
+        def run_index() -> None:
+            if delay_seconds > 0:
+                sleep(delay_seconds)
+            if self._material_exists(course_id):
+                self._index_material_documents(course_id, file_path, file_type, chapter_title, documents)
+
+        Thread(target=run_index, daemon=True).start()
+
+    def _delete_course_chunks(self, course_id: str, knowledge_base: DocumentKnowledgeBase) -> None:
+        try:
+            knowledge_base.delete_course(course_id)
+        except Exception:
+            logger.debug("Failed to delete stale chunks for %s", course_id, exc_info=True)
+
+    def _set_index_job(self, course_id: str, **updates: Any) -> None:
+        with self._index_lock:
+            current = dict(self._index_jobs.get(course_id, {}))
+            current.update(updates)
+            current["updated_at"] = time()
+            if "started_at" not in current:
+                current["started_at"] = current["updated_at"]
+            self._index_jobs[course_id] = current
+
+    def _material_exists(self, course_id: str) -> bool:
+        try:
+            self.get_material(course_id)
+            return True
+        except KeyError:
+            with self._index_lock:
+                self._index_jobs.pop(course_id, None)
+            return False
+
+    def _remember_markdown_documents(self, course_id: str, material: dict[str, Any], documents: list[Any]) -> None:
+        try:
+            signature = _file_signature(self.materials_registry.resolve_markdown_path(course_id))
+        except Exception:
+            return
+        now = time()
+        with self._init_lock:
+            self._markdown_pages_cache[course_id] = MarkdownPageCacheEntry(
+                signature=signature,
+                material=material,
+                documents=documents,
+                created_at=now,
+                last_used=now,
+            )
+
     def ask_pdf(self, course_id: str, question: str, chapter_title: str | None = None) -> PDFQueryResult:
         """Ask a question over imported PDF materials."""
 
+        self.ensure_material_indexed(course_id)
         request = PDFQueryRequest(
             course_id=course_id,
             question=question,
@@ -303,6 +565,7 @@ class LearningAIService:
         """Prepare a streaming PDF answer for Web clients."""
 
         _report_progress(progress_callback, 0.08, "初始化检索器")
+        self.ensure_material_indexed(course_id)
         retriever = self.retriever
         _report_progress(progress_callback, 0.18, "初始化模型")
         model = self.model
@@ -327,6 +590,7 @@ class LearningAIService:
         """Generate a structured summary for a course chapter."""
 
         _report_progress(progress_callback, 0.06, "初始化模型和检索器")
+        self.ensure_material_indexed(course_id)
         agent = ChapterSummaryAgent(self.model, self.retriever)
         return agent.summarize(
             ChapterSummaryRequest(course_id=course_id, chapter_title=chapter_title),
@@ -346,6 +610,7 @@ class LearningAIService:
         """Generate programming learning questions for a chapter."""
 
         _report_progress(progress_callback, 0.05, "初始化模型和检索器")
+        self.ensure_material_indexed(course_id)
         model = self.model
         retriever = self.retriever
         request = QuizGenerationRequest(
@@ -378,6 +643,8 @@ class LearningAIService:
     ) -> TutorChatResponse:
         """Chat with the programming tutor agent."""
 
+        if course_id:
+            self.ensure_material_indexed(course_id)
         request = TutorChatRequest(user_message=user_message, course_id=course_id, thread_id=thread_id)
         agent = ProgrammingTutorAgent(self.model, self.retriever, self.checkpointer)
         return agent.chat(request)
@@ -451,6 +718,57 @@ class LearningAIService:
             },
         }
 
+    def update_markdown_page(self, course_id: str, page_number: int, content: str) -> dict[str, Any]:
+        """Replace one virtual Markdown page, save the file, and rebuild the AI index in the background."""
+
+        if page_number < 1:
+            raise ValueError("page_number must be greater than or equal to 1.")
+        material, documents = self._get_markdown_documents_cached(course_id)
+        if material.get("file_type") != "markdown":
+            raise ValueError("Only Markdown materials can be edited.")
+        if page_number > len(documents):
+            raise ValueError(f"Markdown page {page_number} is outside 1-{len(documents)}.")
+
+        next_contents = [document.page_content for document in documents]
+        next_contents[page_number - 1] = content.replace("\r\n", "\n").replace("\r", "\n")
+        markdown_path = self.materials_registry.resolve_markdown_path(course_id)
+        markdown_path.write_text("\n\n".join(next_contents).rstrip() + "\n", encoding="utf-8")
+
+        refreshed_documents = self.markdown_loader.load_markdown(
+            file_path=str(markdown_path),
+            course_id=course_id,
+            chapter_title=material.get("chapter_title") or None,
+        )
+        refreshed_material = self.materials_registry.register_markdown(
+            course_id=course_id,
+            file_path=str(markdown_path),
+            chapter_title=material.get("chapter_title") or None,
+            page_count=len(refreshed_documents),
+        )
+        refreshed_material = self.materials_registry.update_index_status(course_id, "queued", chunk_count=0)
+        self._remember_markdown_documents(course_id, refreshed_material, refreshed_documents)
+        self._set_index_job(
+            course_id,
+            status="queued",
+            progress=0.42,
+            message="Markdown saved. AI index will rebuild when needed.",
+            chunk_count=0,
+        )
+        safe_page_number = min(page_number, len(refreshed_documents))
+        document = refreshed_documents[safe_page_number - 1]
+        return {
+            "material": {**refreshed_material, "page_count": len(refreshed_documents), "file_type": "markdown"},
+            "page_count": len(refreshed_documents),
+            "page": {
+                "page_number": document.metadata.get("page_number") or safe_page_number,
+                "title": document.metadata.get("page_title") or f"第 {safe_page_number} 页",
+                "preview": _markdown_preview(document.page_content),
+                "content": document.page_content,
+                "char_count": len(document.page_content),
+            },
+            "index_status": self.get_material_index_status(course_id),
+        }
+
     def ask_pdf_in_range(
         self,
         course_id: str,
@@ -462,6 +780,7 @@ class LearningAIService:
         """Ask AI using only chunks from a page range."""
 
         _validate_page_range_values(page_start, page_end)
+        self.ensure_material_indexed(course_id)
         chunks = self.range_retriever.search_in_range(
             course_id=course_id,
             query=question,
@@ -519,6 +838,7 @@ class LearningAIService:
         """Summarize a specified page range."""
 
         _validate_page_range_values(page_start, page_end)
+        self.ensure_material_indexed(course_id)
         cached_context = self._get_range_context_memory(course_id, page_start, page_end, chapter_title, min_chunks=4)
         if cached_context:
             context, chunks, warnings = cached_context
@@ -569,6 +889,7 @@ class LearningAIService:
         """Generate programming quiz from a page range."""
 
         _validate_page_range_values(page_start, page_end)
+        self.ensure_material_indexed(course_id)
         cached_context = self._get_range_context_memory(
             course_id, page_start, page_end, chapter_title, min_chunks=min(_quiz_range_top_k(question_count), 4)
         )
@@ -626,6 +947,7 @@ class LearningAIService:
         """Ask AI using current page as primary context."""
 
         _validate_page_range_values(page_number, page_number)
+        self.ensure_material_indexed(course_id)
         chunks = self.range_retriever.get_chunks_by_page_range(
             course_id=course_id,
             page_start=page_number,
@@ -664,6 +986,7 @@ class LearningAIService:
     ) -> dict[str, Any]:
         """Explain, summarize, or analyze selected text."""
 
+        self.ensure_material_indexed(course_id)
         page_context, chunks, warnings = self._selection_page_context(
             course_id,
             page_number,
@@ -694,6 +1017,7 @@ class LearningAIService:
     ) -> dict[str, Any]:
         """Explain selected code with optional page context."""
 
+        self.ensure_material_indexed(course_id)
         page_context, chunks, warnings = self._selection_page_context(
             course_id,
             page_number,
@@ -723,6 +1047,7 @@ class LearningAIService:
         """Extract key points from a specified page range."""
 
         _validate_page_range_values(page_start, page_end)
+        self.ensure_material_indexed(course_id)
         cached_context = self._get_range_context_memory(course_id, page_start, page_end, chapter_title, min_chunks=4)
         if cached_context:
             context, chunks, warnings = cached_context
@@ -984,5 +1309,15 @@ def _markdown_preview(text: str, max_chars: int = 160) -> str:
         .split()
     )
     return compact[:max_chars]
+
+
+def _index_status_message(status: str) -> str:
+    if status == "queued":
+        return "AI index is queued."
+    if status == "indexing":
+        return "AI index is building."
+    if status == "failed":
+        return "AI index failed."
+    return "AI index is ready."
 
 

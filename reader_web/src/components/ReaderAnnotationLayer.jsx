@@ -71,8 +71,18 @@ export default function ReaderAnnotationLayer({
       return;
     }
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
     const point = eventPoint(event, event.currentTarget);
+    if (settings.tool === "text") {
+      const text = window.prompt("输入批注文字");
+      if (!text?.trim()) {
+        return;
+      }
+      const operation = createTextOperation(settings, point, text.trim());
+      onChange(trimAnnotations([...annotationsRef.current, operation]));
+      scheduleDraw();
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
     const operation = createOperation(settings, point);
     drawingRef.current = operation;
     previewRef.current = operation;
@@ -166,6 +176,8 @@ function drawOperation(context, operation, size) {
     drawRect(context, operation.start, operation.end, size);
   } else if (operation.tool === "arrow") {
     drawArrow(context, operation.start, operation.end, size, operation.width);
+  } else if (operation.tool === "text") {
+    drawText(context, operation, size);
   }
   context.restore();
 }
@@ -217,6 +229,23 @@ function drawArrow(context, start, end, size, width) {
   context.stroke();
 }
 
+function drawText(context, operation, size) {
+  const point = toCanvasPoint(operation.point, size);
+  const fontSize = operation.fontSize || Math.max(14, operation.width * 3 + 10);
+  const lines = String(operation.text || "").split(/\n/).slice(0, 8);
+  context.globalCompositeOperation = "source-over";
+  context.font = `700 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  context.textBaseline = "top";
+  context.lineWidth = Math.max(3, operation.width);
+  lines.forEach((line, index) => {
+    const y = point.y + index * fontSize * 1.35;
+    context.strokeStyle = "rgba(255,255,255,0.88)";
+    context.strokeText(line, point.x, y);
+    context.fillStyle = operation.color;
+    context.fillText(line, point.x, y);
+  });
+}
+
 function eventPoint(event, canvas) {
   const rect = canvas.getBoundingClientRect();
   return {
@@ -246,6 +275,19 @@ function createOperation(settings, point) {
   return { ...base, start: point, end: point };
 }
 
+function createTextOperation(settings, point, text) {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    tool: "text",
+    color: settings.color,
+    width: settings.strokeWidth,
+    fontSize: Math.max(14, settings.strokeWidth * 3 + 10),
+    text,
+    point,
+    createdAt: Date.now()
+  };
+}
+
 function updateOperation(operation, point) {
   if (operation.tool === "pen" || operation.tool === "eraser") {
     const lastPoint = operation.points[operation.points.length - 1];
@@ -260,6 +302,9 @@ function updateOperation(operation, point) {
 function isMeaningfulOperation(operation) {
   if (operation.tool === "pen" || operation.tool === "eraser") {
     return operation.points.length > 0;
+  }
+  if (operation.tool === "text") {
+    return Boolean(operation.text?.trim());
   }
   return distance(operation.start, operation.end) > 0.004;
 }

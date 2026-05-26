@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { AlertCircle, ChevronDown, FileText, Loader2 } from "lucide-react";
+import { AlertCircle, ChevronDown, FileText, GripVertical, Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { previewText } from "../utils/selection.js";
 
 const QuizAnswerModule = lazy(() => import("./QuizAnswerModule.jsx"));
@@ -152,7 +152,7 @@ function renderTextLines(text, keyPrefix) {
     });
 }
 
-export default function AiSidePanel({ panel }) {
+export default function AiSidePanel({ panel, expanded, onToggleExpanded, onResizeStart }) {
   const chunks = panel.result?.source_chunks || [];
   const visibleChunks = chunks.slice(0, 6);
   const warnings = panel.result?.warnings || [];
@@ -164,9 +164,29 @@ export default function AiSidePanel({ panel }) {
 
   return (
     <aside className="ai-panel">
+      <div
+        className="ai-resize-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整 AI 侧边栏宽度"
+        onPointerDown={onResizeStart}
+      >
+        <GripVertical size={14} />
+      </div>
       <div className="panel-title">
-        <FileText size={18} />
-        <span>AI 侧边栏</span>
+        <div>
+          <FileText size={18} />
+          <span>AI 侧边栏</span>
+        </div>
+        <button
+          type="button"
+          className="icon-button panel-expand-button"
+          onClick={onToggleExpanded}
+          title={expanded ? "收起侧边栏" : "展开侧边栏"}
+          aria-label={expanded ? "收起 AI 侧边栏" : "展开 AI 侧边栏"}
+        >
+          {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
       </div>
 
       <div className="panel-section">

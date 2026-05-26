@@ -98,12 +98,56 @@ class MaterialsRegistry:
             "file_type": normalized_type,
             "chapter_title": chapter_title,
             "page_count": page_count,
+            "index_status": "ready",
+            "indexed_chunk_count": None,
+            "index_error": "",
             "last_updated": datetime.now().replace(microsecond=0).isoformat(),
         }
         data = self._read()
         data[course_id] = material
         self._write(data)
         return material
+
+    def update_index_status(
+        self,
+        course_id: str,
+        status: str,
+        chunk_count: int | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        """Update the background AI-indexing status for one material."""
+
+        data = self._read()
+        material = data.get(course_id)
+        if not material:
+            raise KeyError(f"Material not found for course_id: {course_id}")
+        material["index_status"] = status
+        if chunk_count is not None:
+            material["indexed_chunk_count"] = chunk_count
+        material["index_error"] = error or ""
+        material["last_indexed"] = datetime.now().replace(microsecond=0).isoformat()
+        data[course_id] = material
+        self._write(data)
+        return self._normalize_material(course_id, material)
+
+    def unregister_material(self, course_id: str, delete_file: bool = True) -> dict[str, Any]:
+        """Remove one material from the reader registry and optionally delete its managed file."""
+
+        data = self._read()
+        material = data.pop(course_id, None)
+        if not material:
+            raise KeyError(f"Material not found for course_id: {course_id}")
+        normalized = self._normalize_material(course_id, material)
+        path: Path | None = None
+        if delete_file:
+            try:
+                path = self._validate_material_path(str(normalized.get("file_path", "")), normalized["file_type"])
+            except FileNotFoundError:
+                path = None
+        self._write(data)
+        if path is not None:
+            path.unlink(missing_ok=True)
+        return normalized
 
     def resolve_pdf_path(self, course_id: str) -> Path:
         """Return a safe absolute path for serving the registered PDF."""

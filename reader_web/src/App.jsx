@@ -3,6 +3,7 @@ import { BookOpen, FileUp, KeyRound, PanelRightOpen } from "lucide-react";
 import {
   askCurrentPage,
   askSelection,
+  closeMaterial,
   explainCodeSelection,
   generateQuizFromSelection,
   listMaterials
@@ -48,6 +49,8 @@ export default function App() {
   const [annotationSettings, setAnnotationSettings] = useState(DEFAULT_ANNOTATION_SETTINGS);
   const [annotationsByPage, setAnnotationsByPage] = useState({});
   const [annotationsDirty, setAnnotationsDirty] = useState(false);
+  const [sidePanelWidth, setSidePanelWidth] = useState(430);
+  const [sidePanelExpanded, setSidePanelExpanded] = useState(false);
   const progressTimerRef = useRef(null);
 
   const activeCourseId = useMemo(
@@ -58,7 +61,6 @@ export default function App() {
     () => materials.find((material) => material.course_id === activeCourseId) || null,
     [activeCourseId, materials]
   );
-  const activeMaterialLabel = activeMaterial?.file_type === "markdown" ? "Markdown" : "PDF";
   const currentPageAnnotations = annotationsByPage[String(currentPage)] || [];
 
   const goToReaderPage = useCallback(
@@ -116,6 +118,16 @@ export default function App() {
   useEffect(() => () => clearProgressTimer(), []);
 
   useEffect(() => {
+    if (!materials.some((material) => material.index_status === "indexing")) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      refreshMaterials();
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [materials]);
+
+  useEffect(() => {
     setAnnotationsByPage(readSavedAnnotations(activeCourseId));
     setAnnotationsDirty(false);
   }, [activeCourseId]);
@@ -171,6 +183,46 @@ export default function App() {
         warnings: []
       }
     });
+  }
+
+  async function handleCloseSelectedMaterial() {
+    if (!selectedCourseId) {
+      return;
+    }
+    const material = materials.find((item) => item.course_id === selectedCourseId);
+    const label = material?.file_name || selectedCourseId;
+    if (!window.confirm(`关闭并移除已导入资料：${label}？`)) {
+      return;
+    }
+    setMaterialsLoading(true);
+    setMaterialsError("");
+    try {
+      await closeMaterial(selectedCourseId);
+      removeSavedAnnotations(selectedCourseId);
+      const remaining = materials.filter((item) => item.course_id !== selectedCourseId);
+      setMaterials(remaining);
+      setSelectedCourseId(remaining[0]?.course_id || "");
+      setManualCourseId("");
+      setCurrentPage(1);
+      setNumPages(0);
+      setPanel({
+        actionLabel: "关闭资料",
+        selectedText: "",
+        loading: false,
+        error: "",
+        result: {
+          answer: `已关闭：${label}`,
+          source_chunks: [],
+          warnings: []
+        },
+        progress: null
+      });
+      await refreshMaterials();
+    } catch (error) {
+      setMaterialsError(error.message);
+    } finally {
+      setMaterialsLoading(false);
+    }
   }
 
   function clearProgressTimer() {
@@ -297,6 +349,27 @@ export default function App() {
     }
   }
 
+  function startSidePanelResize(event) {
+    event.preventDefault();
+    setSidePanelExpanded(false);
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture?.(pointerId);
+
+    function handleMove(moveEvent) {
+      const maxWidth = Math.min(920, Math.max(360, window.innerWidth - 420));
+      const nextWidth = clamp(window.innerWidth - moveEvent.clientX - 14, 320, maxWidth);
+      setSidePanelWidth(nextWidth);
+    }
+
+    function handleUp() {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    }
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp, { once: true });
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -324,6 +397,7 @@ export default function App() {
           }}
           onManualChange={setManualCourseId}
           onRefresh={refreshMaterials}
+          onCloseSelected={handleCloseSelectedMaterial}
         />
         <div className="current-page-pill">
           <PanelRightOpen size={17} />
@@ -334,18 +408,11 @@ export default function App() {
         </div>
       </header>
 
-      <main className="workspace">
+      <main
+        className={`workspace${sidePanelExpanded ? " ai-expanded" : ""}`}
+        style={{ "--ai-panel-width": sidePanelExpanded ? "min(920px, 62vw)" : `${sidePanelWidth}px` }}
+      >
         <div className="reader-column">
-          <section className="quick-start">
-            <div>
-              <strong>{activeCourseId ? `正在阅读：${activeCourseId}` : "先导入或选择一个资料"}</strong>
-              <span>{numPages ? `${activeMaterialLabel} · 共 ${numPages} 页` : "本地 PDF / Markdown 阅读与 AI 检索"}</span>
-            </div>
-            <button type="button" className="secondary-button" onClick={() => setImportOpen(true)}>
-              <FileUp size={17} />
-              <span>导入资料</span>
-            </button>
-          </section>
           <PdfReader
             courseId={activeCourseId}
             material={activeMaterial}
@@ -360,7 +427,12 @@ export default function App() {
             onRefresh={refreshMaterials}
           />
         </div>
-        <AiSidePanel panel={panel} />
+        <AiSidePanel
+          panel={panel}
+          expanded={sidePanelExpanded}
+          onToggleExpanded={() => setSidePanelExpanded((value) => !value)}
+          onResizeStart={startSidePanelResize}
+        />
       </main>
       <FloatingToolbox
         courseId={activeCourseId}
@@ -496,6 +568,14 @@ function writeSavedAnnotations(courseId, annotationsByPage) {
     );
   } catch {
     // Browser storage can be unavailable; the in-memory annotations still stay usable.
+  }
+}
+
+function removeSavedAnnotations(courseId) {
+  try {
+    window.localStorage.removeItem(annotationStorageKey(courseId));
+  } catch {
+    // Browser storage can be unavailable; closing the material should still continue.
   }
 }
 

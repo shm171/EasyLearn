@@ -7,7 +7,8 @@ import {
   RotateCcw,
   Save,
   Square,
-  Trash2
+  Trash2,
+  Type
 } from "lucide-react";
 
 const toolOptions = [
@@ -15,7 +16,8 @@ const toolOptions = [
   { value: "eraser", label: "擦除", icon: Eraser },
   { value: "line", label: "直线", icon: Minus },
   { value: "arrow", label: "箭头", icon: ArrowUpRight },
-  { value: "rect", label: "矩形", icon: Square }
+  { value: "rect", label: "矩形", icon: Square },
+  { value: "text", label: "文字", icon: Type }
 ];
 
 const colorOptions = ["#ef4444", "#f59e0b", "#176b5b", "#2563eb", "#7c3aed", "#202427"];

@@ -55,14 +55,54 @@ def test_reader_supports_markdown_materials() -> None:
     assert "activeMaterial" in app
     assert "getMarkdownIndex" in client
     assert "getMarkdownPage" in client
+    assert "updateMarkdownPage" in client
     assert "importLocalMaterial" in client
+    assert "XMLHttpRequest" in client
+    assert "onProgress" in client
     assert ".md,.markdown" in dialog
+    assert "importProgress" in dialog
+    assert "资料导入进度" in dialog
     assert "MarkdownThumbnail" in reader
     assert "renderMarkdown" in reader
     assert "markdownPageCache" in reader
+    assert "markdownEditing" in reader
+    assert "markdown-editor" in reader
+    assert "saveMarkdownEdit" in reader
     assert "requestMarkdownPage" in reader
     assert "正在加载当前页" in reader
     assert "markdown-page" in styles
+    assert "markdown-editor" in styles
+
+
+def test_reader_layout_and_ai_panel_are_adjustable() -> None:
+    app = Path("reader_web/src/App.jsx").read_text(encoding="utf-8")
+    panel = Path("reader_web/src/components/AiSidePanel.jsx").read_text(encoding="utf-8")
+    styles = Path("reader_web/src/styles.css").read_text(encoding="utf-8")
+
+    assert "quick-start" not in app
+    assert "reader-toolbar-meta" in styles
+    assert "sidePanelWidth" in app
+    assert "sidePanelExpanded" in app
+    assert "startSidePanelResize" in app
+    assert "onResizeStart" in panel
+    assert "onToggleExpanded" in panel
+    assert "ai-resize-handle" in styles
+    assert "workspace.ai-expanded" in styles
+
+
+def test_reader_can_close_imported_materials() -> None:
+    app = Path("reader_web/src/App.jsx").read_text(encoding="utf-8")
+    selector = Path("reader_web/src/components/CourseSelector.jsx").read_text(encoding="utf-8")
+    client = Path("reader_web/src/api/client.js").read_text(encoding="utf-8")
+    styles = Path("reader_web/src/styles.css").read_text(encoding="utf-8")
+
+    assert "closeMaterial" in client
+    assert 'method: "DELETE"' in client
+    assert "getMaterialIndexStatus" in client
+    assert "handleCloseSelectedMaterial" in app
+    assert "removeSavedAnnotations" in app
+    assert "onCloseSelected" in selector
+    assert "close-material-button" in styles
 
 
 def test_ai_side_panel_collapses_sources_by_default() -> None:
@@ -124,8 +164,11 @@ def test_reader_supports_page_annotations() -> None:
     assert "MAX_ANNOTATIONS_PER_PAGE" in annotation_layer
     assert "drawArrow" in annotation_layer
     assert "drawRect" in annotation_layer
+    assert "drawText" in annotation_layer
+    assert "createTextOperation" in annotation_layer
     assert "画笔" in annotation_tool
     assert "擦除" in annotation_tool
+    assert "文字" in annotation_tool
     assert "矩形" in annotation_tool
     assert "保存" in annotation_tool
     assert "annotation-canvas" in styles
