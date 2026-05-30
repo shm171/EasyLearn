@@ -42,12 +42,24 @@ export async function getMarkdownPages(courseId) {
   return request(`/reader/markdown/${encodeURIComponent(courseId)}`);
 }
 
+export async function getMaterialPages(courseId) {
+  return request(`/reader/pages/${encodeURIComponent(courseId)}`);
+}
+
 export async function getMarkdownIndex(courseId) {
   return request(`/reader/markdown/${encodeURIComponent(courseId)}/index`);
 }
 
+export async function getMaterialPageIndex(courseId) {
+  return request(`/reader/pages/${encodeURIComponent(courseId)}/index`);
+}
+
 export async function getMarkdownPage(courseId, pageNumber) {
   return request(`/reader/markdown/${encodeURIComponent(courseId)}/pages/${Number(pageNumber)}`);
+}
+
+export async function getMaterialPage(courseId, pageNumber) {
+  return request(`/reader/pages/${encodeURIComponent(courseId)}/pages/${Number(pageNumber)}`);
 }
 
 export async function updateMarkdownPage(courseId, pageNumber, content) {

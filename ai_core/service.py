@@ -22,6 +22,7 @@ from ai_core.memory import create_memory_checkpointer
 from ai_core.model_factory import get_chat_model, reset_model_caches
 from ai_core.rag.markdown_loader import MarkdownLoaderManager
 from ai_core.rag.pdf_loader import PDFLoaderManager
+from ai_core.rag.pptx_loader import PptxLoaderManager
 from ai_core.rag.range_retriever import NO_RANGE_CONTENT_MESSAGE, RangeRetriever
 from ai_core.rag.retriever import PDFRetriever
 from ai_core.rag.text_splitter import PDFTextSplitter
@@ -85,6 +86,7 @@ class LearningAIService:
         self.settings = get_settings()
         self.pdf_loader = PDFLoaderManager()
         self.markdown_loader = MarkdownLoaderManager()
+        self.pptx_loader = PptxLoaderManager()
         self.text_splitter = PDFTextSplitter()
         self._knowledge_base: DocumentKnowledgeBase | None = None
         self._retriever: PDFRetriever | None = None
@@ -247,11 +249,23 @@ class LearningAIService:
             )
             documents: list[Any] | None = None
             file_name = Path(file_path).name
-        else:
+        elif file_type == "markdown":
             documents = self._load_material_documents(course_id, file_path, file_type, chapter_title)
             first_meta = documents[0].metadata
             page_count = len(documents)
             material = self.materials_registry.register_markdown(
+                course_id=course_id,
+                file_path=file_path,
+                chapter_title=chapter_title,
+                page_count=page_count,
+            )
+            self._remember_markdown_documents(course_id, material, documents)
+            file_name = str(first_meta.get("file_name", ""))
+        else:
+            documents = self._load_material_documents(course_id, file_path, file_type, chapter_title)
+            first_meta = documents[0].metadata
+            page_count = len(documents)
+            material = self.materials_registry.register_pptx(
                 course_id=course_id,
                 file_path=file_path,
                 chapter_title=chapter_title,
@@ -272,7 +286,7 @@ class LearningAIService:
             course_id=course_id,
             file_path=file_path,
             file_name=file_name,
-            file_type="markdown" if file_type == "markdown" else "pdf",
+            file_type="markdown" if file_type == "markdown" else ("pptx" if file_type == "pptx" else "pdf"),
             chapter_title=chapter_title,
             page_count=page_count,
             chunk_count=0,
@@ -410,6 +424,36 @@ class LearningAIService:
             logger.warning("Markdown imported but was not registered for the reader: %s", exc)
         return result
 
+    def ingest_pptx(self, course_id: str, file_path: str, chapter_title: str | None = None) -> PDFIngestResult:
+        """Read, chunk, and store a PowerPoint file in the local vector database."""
+
+        documents = self.pptx_loader.load_pptx(file_path=file_path, course_id=course_id, chapter_title=chapter_title)
+        chunks = self.text_splitter.split_documents(documents)
+        self.knowledge_base.delete_course(course_id)
+        self.knowledge_base.add_documents(chunks)
+        first_meta = documents[0].metadata
+        result = PDFIngestResult(
+            course_id=course_id,
+            file_path=file_path,
+            file_name=str(first_meta.get("file_name", "")),
+            file_type="pptx",
+            chapter_title=chapter_title,
+            page_count=len(documents),
+            chunk_count=len(chunks),
+            message="PowerPoint imported successfully.",
+        )
+        try:
+            self.materials_registry.register_pptx(
+                course_id=course_id,
+                file_path=file_path,
+                chapter_title=chapter_title,
+                page_count=result.page_count,
+            )
+            self.materials_registry.update_index_status(course_id, "ready", chunk_count=result.chunk_count)
+        except Exception as exc:
+            logger.warning("PowerPoint imported but was not registered for the reader: %s", exc)
+        return result
+
     def _load_material_documents(
         self,
         course_id: str,
@@ -422,6 +466,12 @@ class LearningAIService:
             return self.pdf_loader.load_pdf(file_path=file_path, course_id=course_id, chapter_title=chapter_title)
         if normalized_type == "markdown":
             return self.markdown_loader.load_markdown(
+                file_path=file_path,
+                course_id=course_id,
+                chapter_title=chapter_title,
+            )
+        if normalized_type == "pptx":
+            return self.pptx_loader.load_pptx(
                 file_path=file_path,
                 course_id=course_id,
                 chapter_title=chapter_title,
@@ -459,12 +509,12 @@ class LearningAIService:
                     self._index_jobs.pop(course_id, None)
                 return
             self.materials_registry.update_index_status(course_id, "ready", chunk_count=len(chunks))
-            if file_type == "markdown":
+            if file_type in {"markdown", "pptx"}:
                 try:
                     material = self.get_material(course_id)
                     self._remember_markdown_documents(course_id, material, documents)
                 except Exception:
-                    logger.debug("Markdown cache refresh failed after indexing %s", course_id, exc_info=True)
+                    logger.debug("Virtual page cache refresh failed after indexing %s", course_id, exc_info=True)
             self._set_index_job(
                 course_id,
                 status="ready",
@@ -529,7 +579,8 @@ class LearningAIService:
 
     def _remember_markdown_documents(self, course_id: str, material: dict[str, Any], documents: list[Any]) -> None:
         try:
-            signature = _file_signature(self.materials_registry.resolve_markdown_path(course_id))
+            file_type = str(material.get("file_type") or "markdown")
+            signature = _file_signature(self.materials_registry.resolve_material_path(course_id, expected_type=file_type))
         except Exception:
             return
         now = time()
@@ -662,59 +713,79 @@ class LearningAIService:
     def get_markdown_pages(self, course_id: str) -> dict[str, Any]:
         """Return virtual Markdown pages for the reader UI."""
 
-        material, documents = self._get_markdown_documents_cached(course_id)
-        pages = [
-            {
-                "page_number": document.metadata.get("page_number"),
-                "title": document.metadata.get("page_title") or f"第 {index} 页",
-                "preview": _markdown_preview(document.page_content),
-                "content": document.page_content,
-            }
-            for index, document in enumerate(documents, start=1)
-        ]
-        return {
-            "material": {**material, "page_count": len(pages), "file_type": "markdown"},
-            "page_count": len(pages),
-            "pages": pages,
-        }
+        return self.get_material_pages(course_id)
 
     def get_markdown_index(self, course_id: str) -> dict[str, Any]:
         """Return lightweight Markdown page metadata for fast reader startup."""
 
+        return self.get_material_page_index(course_id)
+
+    def get_markdown_page(self, course_id: str, page_number: int) -> dict[str, Any]:
+        """Return one virtual Markdown page by 1-based page number."""
+
+        return self.get_material_page(course_id, page_number)
+
+    def get_material_pages(self, course_id: str) -> dict[str, Any]:
+        """Return virtual pages for Markdown and PowerPoint reader materials."""
+
         material, documents = self._get_markdown_documents_cached(course_id)
+        file_type = str(material.get("file_type") or "markdown")
         pages = [
             {
                 "page_number": document.metadata.get("page_number"),
-                "title": document.metadata.get("page_title") or f"第 {index} 页",
-                "preview": _markdown_preview(document.page_content),
+                "title": document.metadata.get("page_title") or _default_page_title(file_type, index),
+                "preview": _material_preview(document.page_content),
+                "content": document.page_content,
                 "char_count": len(document.page_content),
             }
             for index, document in enumerate(documents, start=1)
         ]
         return {
-            "material": {**material, "page_count": len(pages), "file_type": "markdown"},
+            "material": {**material, "page_count": len(pages), "file_type": file_type},
             "page_count": len(pages),
             "pages": pages,
         }
 
-    def get_markdown_page(self, course_id: str, page_number: int) -> dict[str, Any]:
-        """Return one virtual Markdown page by 1-based page number."""
+    def get_material_page_index(self, course_id: str) -> dict[str, Any]:
+        """Return lightweight virtual-page metadata for Markdown and PowerPoint materials."""
+
+        material, documents = self._get_markdown_documents_cached(course_id)
+        file_type = str(material.get("file_type") or "markdown")
+        pages = [
+            {
+                "page_number": document.metadata.get("page_number"),
+                "title": document.metadata.get("page_title") or _default_page_title(file_type, index),
+                "preview": _material_preview(document.page_content),
+                "char_count": len(document.page_content),
+            }
+            for index, document in enumerate(documents, start=1)
+        ]
+        return {
+            "material": {**material, "page_count": len(pages), "file_type": file_type},
+            "page_count": len(pages),
+            "pages": pages,
+        }
+
+    def get_material_page(self, course_id: str, page_number: int) -> dict[str, Any]:
+        """Return one virtual page from a Markdown or PowerPoint material."""
 
         if page_number < 1:
             raise ValueError("page_number must be greater than or equal to 1.")
         material, documents = self._get_markdown_documents_cached(course_id)
+        file_type = str(material.get("file_type") or "markdown")
         if page_number > len(documents):
-            raise ValueError(f"Markdown page {page_number} is outside 1-{len(documents)}.")
+            raise ValueError(f"Material page {page_number} is outside 1-{len(documents)}.")
         document = documents[page_number - 1]
         return {
-            "material": {**material, "page_count": len(documents), "file_type": "markdown"},
+            "material": {**material, "page_count": len(documents), "file_type": file_type},
             "page_count": len(documents),
             "page": {
                 "page_number": document.metadata.get("page_number") or page_number,
-                "title": document.metadata.get("page_title") or f"第 {page_number} 页",
-                "preview": _markdown_preview(document.page_content),
+                "title": document.metadata.get("page_title") or _default_page_title(file_type, page_number),
+                "preview": _material_preview(document.page_content),
                 "content": document.page_content,
                 "char_count": len(document.page_content),
+                "file_type": file_type,
             },
         }
 
@@ -1086,8 +1157,11 @@ class LearningAIService:
 
     def _get_markdown_documents_cached(self, course_id: str) -> tuple[dict[str, Any], list[Any]]:
         material = self.get_material(course_id)
-        markdown_path = self.materials_registry.resolve_markdown_path(course_id)
-        signature = _file_signature(markdown_path)
+        file_type = str(material.get("file_type") or "markdown")
+        if file_type not in {"markdown", "pptx"}:
+            raise ValueError(f"Registered material is {file_type}, not a virtual-page material.")
+        material_path = self.materials_registry.resolve_material_path(course_id, expected_type=file_type)
+        signature = _file_signature(material_path)
         with self._init_lock:
             cached = self._markdown_pages_cache.get(course_id)
             if cached and cached.signature == signature:
@@ -1100,12 +1174,19 @@ class LearningAIService:
                 )
                 return dict(cached.material), cached.documents
 
-        documents = self.markdown_loader.load_markdown(
-            file_path=str(markdown_path),
-            course_id=course_id,
-            chapter_title=material.get("chapter_title") or None,
-        )
-        cached_material = {**material, "page_count": len(documents), "file_type": "markdown"}
+        if file_type == "markdown":
+            documents = self.markdown_loader.load_markdown(
+                file_path=str(material_path),
+                course_id=course_id,
+                chapter_title=material.get("chapter_title") or None,
+            )
+        else:
+            documents = self.pptx_loader.load_pptx(
+                file_path=str(material_path),
+                course_id=course_id,
+                chapter_title=material.get("chapter_title") or None,
+            )
+        cached_material = {**material, "page_count": len(documents), "file_type": file_type}
         with self._init_lock:
             self._markdown_pages_cache[course_id] = MarkdownPageCacheEntry(
                 signature=signature,
@@ -1301,6 +1382,10 @@ def _file_signature(path: Path) -> tuple[str, int, int]:
 
 
 def _markdown_preview(text: str, max_chars: int = 160) -> str:
+    return _material_preview(text, max_chars=max_chars)
+
+
+def _material_preview(text: str, max_chars: int = 160) -> str:
     compact = " ".join(
         text.replace("```", " ")
         .replace("#", " ")
@@ -1309,6 +1394,12 @@ def _markdown_preview(text: str, max_chars: int = 160) -> str:
         .split()
     )
     return compact[:max_chars]
+
+
+def _default_page_title(file_type: str, page_number: int) -> str:
+    if file_type == "pptx":
+        return f"幻灯片 {page_number}"
+    return f"第 {page_number} 页"
 
 
 def _index_status_message(status: str) -> str:

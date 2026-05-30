@@ -55,11 +55,13 @@ def test_reader_supports_markdown_materials() -> None:
     assert "activeMaterial" in app
     assert "getMarkdownIndex" in client
     assert "getMarkdownPage" in client
+    assert "getMaterialPageIndex" in client
+    assert "getMaterialPage" in client
     assert "updateMarkdownPage" in client
     assert "importLocalMaterial" in client
     assert "XMLHttpRequest" in client
     assert "onProgress" in client
-    assert ".md,.markdown" in dialog
+    assert ".md,.markdown,.pptx,.pptm" in dialog
     assert "importProgress" in dialog
     assert "资料导入进度" in dialog
     assert "MarkdownThumbnail" in reader
@@ -72,6 +74,24 @@ def test_reader_supports_markdown_materials() -> None:
     assert "正在加载当前页" in reader
     assert "markdown-page" in styles
     assert "markdown-editor" in styles
+
+
+def test_reader_supports_powerpoint_materials() -> None:
+    reader = Path("reader_web/src/components/PdfReader.jsx").read_text(encoding="utf-8")
+    selector = Path("reader_web/src/components/CourseSelector.jsx").read_text(encoding="utf-8")
+    dialog = Path("reader_web/src/components/ImportPdfDialog.jsx").read_text(encoding="utf-8")
+    client = Path("reader_web/src/api/client.js").read_text(encoding="utf-8")
+    styles = Path("reader_web/src/styles.css").read_text(encoding="utf-8")
+
+    assert "getMaterialPageIndex" in client
+    assert "getMaterialPage" in client
+    assert ".pptx,.pptm" in dialog
+    assert "PowerPoint" in selector
+    assert "PresentationThumbnail" in reader
+    assert "renderVirtualPage" in reader
+    assert 'fileType === "pptx"' in reader
+    assert "presentation-slide" in styles
+    assert "presentation-thumbnail" in styles
 
 
 def test_reader_layout_and_ai_panel_are_adjustable() -> None:

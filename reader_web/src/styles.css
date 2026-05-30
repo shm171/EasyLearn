@@ -350,6 +350,62 @@ textarea {
   cursor: crosshair;
 }
 
+.annotation-canvas.tool-text.active {
+  cursor: text;
+}
+
+.annotation-canvas.tool-move.active {
+  cursor: move;
+}
+
+.annotation-move-box {
+  position: absolute;
+  z-index: 7;
+  display: none;
+  left: 0;
+  top: 0;
+  border: 2px dashed #176b5b;
+  border-radius: 3px;
+  background: transparent;
+  pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform, width, height;
+}
+
+.annotation-move-box[data-mode="moving"] {
+  border-style: solid;
+  box-shadow: 0 0 0 3px rgba(23, 107, 91, 0.12);
+}
+
+.annotation-move-box[data-mode="selecting"] {
+  background: rgba(23, 107, 91, 0.04);
+}
+
+.annotation-text-input {
+  position: absolute;
+  z-index: 8;
+  min-height: 0;
+  border: 2px dashed currentColor;
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 8px 22px rgba(18, 28, 33, 0.16);
+  font-weight: 700;
+  line-height: 1.35;
+  resize: none;
+  outline: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.annotation-text-input:focus {
+  background: #ffffff;
+  box-shadow:
+    0 0 0 3px rgba(23, 107, 91, 0.16),
+    0 10px 28px rgba(18, 28, 33, 0.18);
+}
+
 .annotation-surface .react-pdf__Page {
   position: relative;
   z-index: 1;
@@ -390,6 +446,58 @@ textarea {
 
 .markdown-stage .markdown-page {
   width: 100%;
+}
+
+.presentation-stage .annotation-surface {
+  width: min(960px, 100%);
+}
+
+.presentation-slide {
+  width: 100%;
+  min-height: min(620px, calc(100vh - 260px));
+  aspect-ratio: 16 / 9;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 46px 58px;
+  background:
+    linear-gradient(180deg, rgba(247, 250, 251, 0.98), rgba(255, 255, 255, 0.98)),
+    #ffffff;
+  box-shadow: 0 2px 16px rgba(25, 31, 36, 0.16);
+  color: #202427;
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+}
+
+.presentation-slide-meta {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: #e7f3ef;
+  color: #176b5b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.presentation-slide-content {
+  min-width: 0;
+}
+
+.presentation-slide .markdown-heading.level-1 {
+  margin-top: 0;
+  color: #12343b;
+  font-size: 34px;
+}
+
+.presentation-slide .markdown-paragraph,
+.presentation-slide .markdown-list {
+  font-size: 20px;
+}
+
+.presentation-thumbnail {
+  background: #f6fbfa;
 }
 
 .markdown-heading {

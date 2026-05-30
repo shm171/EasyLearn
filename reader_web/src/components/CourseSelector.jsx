@@ -25,7 +25,7 @@ export default function CourseSelector({
           ) : (
             materials.map((material) => (
               <option key={material.course_id} value={material.course_id}>
-                {material.course_id} · {material.file_name} · {material.file_type === "markdown" ? "Markdown" : "PDF"}
+                {material.course_id} · {material.file_name} · {materialTypeLabel(material.file_type)}
                 {material.index_status === "indexing" ? " · 索引中" : ""}
                 {material.index_status === "failed" ? " · 索引失败" : ""}
               </option>
@@ -56,4 +56,15 @@ export default function CourseSelector({
       {error ? <span className="toolbar-error">{error}</span> : null}
     </div>
   );
+}
+
+function materialTypeLabel(fileType) {
+  const normalized = String(fileType || "").toLowerCase();
+  if (normalized === "markdown" || normalized === "md") {
+    return "Markdown";
+  }
+  if (normalized === "pptx" || normalized === "pptm" || normalized === "presentation") {
+    return "PowerPoint";
+  }
+  return "PDF";
 }

@@ -22,7 +22,7 @@ export default function ImportPdfDialog({ open, onClose, onImported }) {
       return;
     }
     if (!file) {
-      setError("请选择一个 PDF 或 Markdown 文件。");
+      setError("请选择一个 PDF、Markdown 或 PowerPoint 文件。");
       return;
     }
 
@@ -108,10 +108,10 @@ export default function ImportPdfDialog({ open, onClose, onImported }) {
 
         <label className="file-drop">
           <FileUp size={24} />
-          <span>{file ? file.name : "点击选择 PDF / Markdown 文件"}</span>
+          <span>{file ? file.name : "点击选择 PDF / Markdown / PPT 文件"}</span>
           <input
             type="file"
-            accept="application/pdf,text/markdown,text/plain,.pdf,.md,.markdown"
+            accept="application/pdf,text/markdown,text/plain,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint.presentation.macroEnabled.12,.pdf,.md,.markdown,.pptx,.pptm"
             onChange={(event) => setFile(event.target.files?.[0] || null)}
           />
         </label>

@@ -6,6 +6,7 @@ import {
   FileText,
   FileUp,
   Minimize2,
+  Presentation,
   RefreshCw,
   Rows3,
   Save,
@@ -14,7 +15,7 @@ import {
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { getMarkdownIndex, getMarkdownPage, getPdfUrl, updateMarkdownPage } from "../api/client.js";
+import { getMaterialPage, getMaterialPageIndex, getPdfUrl, updateMarkdownPage } from "../api/client.js";
 import { getSelectedText } from "../utils/selection.js";
 import ContextMenu from "./ContextMenu.jsx";
 import ReaderAnnotationLayer from "./ReaderAnnotationLayer.jsx";
@@ -39,6 +40,8 @@ export default function PdfReader({
 }) {
   const fileType = materialFileType(material);
   const isMarkdown = fileType === "markdown";
+  const isPresentation = fileType === "pptx";
+  const isVirtualMaterial = isMarkdown || isPresentation;
   const [numPages, setNumPages] = useState(0);
   const [loadError, setLoadError] = useState("");
   const [menu, setMenu] = useState(null);
@@ -68,13 +71,13 @@ export default function PdfReader({
   }, [courseId, fileType]);
 
   useEffect(() => {
-    if (!courseId || !isMarkdown) {
+    if (!courseId || !isVirtualMaterial) {
       return;
     }
     let cancelled = false;
     setMarkdownLoading(true);
     setLoadError("");
-    getMarkdownIndex(courseId)
+    getMaterialPageIndex(courseId)
       .then((data) => {
         if (cancelled) {
           return;
@@ -102,10 +105,10 @@ export default function PdfReader({
     return () => {
       cancelled = true;
     };
-  }, [courseId, isMarkdown]);
+  }, [courseId, isVirtualMaterial]);
 
   useEffect(() => {
-    if (!courseId || !isMarkdown || !numPages || markdownPageCache[String(currentPage)]) {
+    if (!courseId || !isVirtualMaterial || !numPages || markdownPageCache[String(currentPage)]) {
       return;
     }
     let cancelled = false;
@@ -129,10 +132,10 @@ export default function PdfReader({
     return () => {
       cancelled = true;
     };
-  }, [courseId, currentPage, isMarkdown, markdownPageCache, numPages]);
+  }, [courseId, currentPage, isVirtualMaterial, markdownPageCache, numPages]);
 
   useEffect(() => {
-    if (!courseId || !isMarkdown || !numPages) {
+    if (!courseId || !isVirtualMaterial || !numPages) {
       return;
     }
     const nearbyPages = [currentPage - 1, currentPage + 1].filter(
@@ -152,12 +155,12 @@ export default function PdfReader({
           // Nearby prefetch should not interrupt reading the current page.
         });
     });
-  }, [courseId, currentPage, isMarkdown, markdownPageCache, numPages]);
+  }, [courseId, currentPage, isVirtualMaterial, markdownPageCache, numPages]);
 
   const currentMarkdownPage = markdownPageCache[String(currentPage)] || null;
   const renderedMarkdownPage = useMemo(
-    () => (currentMarkdownPage ? renderMarkdown(currentMarkdownPage.content) : null),
-    [currentMarkdownPage]
+    () => (currentMarkdownPage ? renderVirtualPage(currentMarkdownPage, fileType) : null),
+    [currentMarkdownPage, fileType]
   );
 
   useEffect(() => {
@@ -190,7 +193,7 @@ export default function PdfReader({
   }
 
   async function saveMarkdownEdit() {
-    if (!courseId || !currentMarkdownPage || markdownSaving) {
+    if (!courseId || !currentMarkdownPage || !isMarkdown || markdownSaving) {
       return;
     }
     setMarkdownSaving(true);
@@ -233,7 +236,7 @@ export default function PdfReader({
         <div className="empty-actions">
           <button type="button" className="primary-button" onClick={onImport}>
             <FileUp size={18} />
-            <span>导入 PDF / Markdown</span>
+            <span>导入 PDF / Markdown / PPT</span>
           </button>
           <button type="button" className="secondary-button" onClick={onRefresh}>
             <RefreshCw size={18} />
@@ -244,8 +247,8 @@ export default function PdfReader({
     );
   }
 
-  const shell = isMarkdown ? (
-    <section className="reader-shell markdown-reader-shell">
+  const shell = isVirtualMaterial ? (
+    <section className={`reader-shell markdown-reader-shell${isPresentation ? " presentation-reader-shell" : ""}`}>
       <ReaderToolbar
         currentPage={currentPage}
         numPages={numPages}
@@ -253,7 +256,7 @@ export default function PdfReader({
         fileType={fileType}
         onPageSelect={goToPage}
         actions={
-          currentMarkdownPage ? (
+          currentMarkdownPage && isMarkdown ? (
             <div className="markdown-edit-actions">
               {markdownEditing ? (
                 <>
@@ -285,17 +288,17 @@ export default function PdfReader({
           ) : null
         }
       />
-      {markdownLoading ? <div className="pdf-status">正在加载 Markdown...</div> : null}
+      {markdownLoading ? <div className="pdf-status">正在加载 {typeLabel(fileType)}...</div> : null}
       {!markdownLoading ? (
-        <div className="pdf-body markdown-body">
+        <div className={`pdf-body markdown-body${isPresentation ? " presentation-body" : ""}`}>
           <ThumbnailRail
-            type="markdown"
+            type={fileType}
             numPages={numPages}
             currentPage={currentPage}
             pagesMeta={markdownPages}
             onPageSelect={goToPage}
           />
-          <div className="pdf-stage markdown-stage" onContextMenu={handleContextMenu}>
+          <div className={`pdf-stage markdown-stage${isPresentation ? " presentation-stage" : ""}`} onContextMenu={handleContextMenu}>
             {currentMarkdownPage ? (
               <div className="annotation-surface">
                 {markdownEditing ? (
@@ -313,7 +316,10 @@ export default function PdfReader({
                     aria-label={`编辑 Markdown 第 ${currentPage} 页`}
                   />
                 ) : (
-                  <article className="markdown-page" aria-label={`Markdown 第 ${currentPage} 页`}>
+                  <article
+                    className={isPresentation ? "presentation-slide" : "markdown-page"}
+                    aria-label={`${typeLabel(fileType)} 第 ${currentPage} 页`}
+                  >
                     {renderedMarkdownPage}
                   </article>
                 )}
@@ -409,7 +415,7 @@ export default function PdfReader({
 
 function ReaderToolbar({ currentPage, numPages, material, fileType, actions, onPageSelect }) {
   const materialName = material?.course_id || material?.file_name || "未选择资料";
-  const typeLabel = fileType === "markdown" ? "Markdown" : "PDF";
+  const label = typeLabel(fileType);
   return (
     <div className="reader-toolbar">
       <div className="reader-toolbar-main">
@@ -440,7 +446,7 @@ function ReaderToolbar({ currentPage, numPages, material, fileType, actions, onP
       </div>
       <div className="reader-toolbar-meta">
         <span>{materialName}</span>
-        <span>{typeLabel}{numPages ? ` · 共 ${numPages} 页` : ""}</span>
+        <span>{label}{numPages ? ` · 共 ${numPages} 页` : ""}</span>
       </div>
     </div>
   );
@@ -504,6 +510,8 @@ function ThumbnailRail({
                 ) : (
                   <div className="thumbnail-placeholder compact">{page}</div>
                 )
+              ) : type === "pptx" ? (
+                <PresentationThumbnail page={page} pageMeta={pagesMeta[page - 1]} />
               ) : (
                 <MarkdownThumbnail page={page} pageMeta={pagesMeta[page - 1]} />
               )}
@@ -513,6 +521,18 @@ function ThumbnailRail({
         )}
       </div>
     </aside>
+  );
+}
+
+function PresentationThumbnail({ page, pageMeta }) {
+  const title = pageMeta?.title || `幻灯片 ${page}`;
+  const preview = pageMeta?.preview || compactMarkdown(pageMeta?.content || "");
+  return (
+    <div className="markdown-thumbnail presentation-thumbnail">
+      <Presentation size={17} />
+      <strong>{title}</strong>
+      <p>{preview || "PowerPoint"}</p>
+    </div>
   );
 }
 
@@ -529,7 +549,7 @@ function MarkdownThumbnail({ page, pageMeta }) {
 }
 
 async function loadMarkdownPage(courseId, pageNumber) {
-  const data = await getMarkdownPage(courseId, pageNumber);
+  const data = await getMaterialPage(courseId, pageNumber);
   return data.page;
 }
 
@@ -544,6 +564,18 @@ function requestMarkdownPage(requestsRef, courseId, pageNumber) {
   });
   requestsRef.current.set(key, request);
   return request;
+}
+
+function renderVirtualPage(page, fileType) {
+  if (fileType === "pptx") {
+    return (
+      <>
+        <div className="presentation-slide-meta">幻灯片 {page.page_number || ""}</div>
+        <div className="presentation-slide-content">{renderMarkdown(page.content)}</div>
+      </>
+    );
+  }
+  return renderMarkdown(page.content);
 }
 
 function renderMarkdown(content = "") {
@@ -813,11 +845,27 @@ function materialFileType(material) {
   if (fileType === "markdown" || fileType === "md") {
     return "markdown";
   }
+  if (fileType === "pptx" || fileType === "pptm" || fileType === "presentation") {
+    return "pptx";
+  }
   const fileName = String(material?.file_name || "").toLowerCase();
   if (fileName.endsWith(".md") || fileName.endsWith(".markdown")) {
     return "markdown";
   }
+  if (fileName.endsWith(".pptx") || fileName.endsWith(".pptm")) {
+    return "pptx";
+  }
   return "pdf";
+}
+
+function typeLabel(fileType) {
+  if (fileType === "markdown") {
+    return "Markdown";
+  }
+  if (fileType === "pptx") {
+    return "PowerPoint";
+  }
+  return "PDF";
 }
 
 async function copyTextToClipboard(text) {

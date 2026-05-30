@@ -21,6 +21,7 @@ from api.dependencies import get_learning_service
 
 router = APIRouter(prefix="/reader", tags=["material reader"])
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
+PPTX_SUFFIXES = {".pptx", ".pptm"}
 
 
 class ApiConfigPayload(BaseModel):
@@ -54,7 +55,21 @@ def _file_type_from_name(file_name: str) -> str:
         return "pdf"
     if suffix in MARKDOWN_SUFFIXES:
         return "markdown"
-    raise ValueError("Only .pdf, .md, and .markdown files are supported.")
+    if suffix in PPTX_SUFFIXES:
+        return "pptx"
+    if suffix == ".ppt":
+        raise ValueError("Legacy .ppt files are not supported yet. Please save the presentation as .pptx first.")
+    raise ValueError("Only .pdf, .md, .markdown, .pptx, and .pptm files are supported.")
+
+
+def _display_file_type(file_type: str) -> str:
+    if file_type == "pdf":
+        return "PDF"
+    if file_type == "markdown":
+        return "Markdown"
+    if file_type == "pptx":
+        return "PowerPoint"
+    return file_type.upper()
 
 
 def _env_path() -> Path:
@@ -235,6 +250,21 @@ def get_markdown(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/pages/{course_id}")
+def get_material_pages(
+    course_id: str,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Return virtual pages for Markdown and PowerPoint files."""
+
+    try:
+        return service.get_material_pages(course_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/markdown/{course_id}/index")
 def get_markdown_index(
     course_id: str,
@@ -244,6 +274,21 @@ def get_markdown_index(
 
     try:
         return service.get_markdown_index(course_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/pages/{course_id}/index")
+def get_material_page_index(
+    course_id: str,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Return lightweight virtual-page metadata for Markdown and PowerPoint files."""
+
+    try:
+        return service.get_material_page_index(course_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (FileNotFoundError, ValueError) as exc:
@@ -260,6 +305,22 @@ def get_markdown_page(
 
     try:
         return service.get_markdown_page(course_id, page_number)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/pages/{course_id}/pages/{page_number}")
+def get_material_page(
+    course_id: str,
+    page_number: int,
+    service: LearningAIService = Depends(get_learning_service),
+) -> dict[str, Any]:
+    """Return one virtual page from a Markdown or PowerPoint file."""
+
+    try:
+        return service.get_material_page(course_id, page_number)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (FileNotFoundError, ValueError) as exc:
@@ -290,7 +351,7 @@ def import_local_material(
     file: UploadFile = File(...),
     service: LearningAIService = Depends(get_learning_service),
 ) -> dict[str, Any]:
-    """Upload a local PDF or Markdown file, ingest it, and register it."""
+    """Upload a local PDF, Markdown, or PowerPoint file, ingest it, and register it."""
 
     if not course_id.strip():
         raise HTTPException(status_code=400, detail="course_id cannot be empty")
@@ -327,7 +388,7 @@ def import_local_material(
         file.file.close()
 
     return {
-        "message": f"{file_type.upper() if file_type == 'pdf' else 'Markdown'} imported successfully.",
+        "message": f"{_display_file_type(file_type)} imported successfully.",
         "material": material,
         "ingest_result": ingest_result.model_dump(),
         "index_status": index_status,

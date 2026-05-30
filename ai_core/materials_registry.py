@@ -12,6 +12,7 @@ class MaterialsRegistry:
     """Persist and validate material metadata for the browser reader."""
 
     MARKDOWN_SUFFIXES = {".md", ".markdown"}
+    PPTX_SUFFIXES = {".pptx", ".pptm"}
 
     def __init__(
         self,
@@ -72,6 +73,23 @@ class MaterialsRegistry:
             chapter_title=chapter_title,
             page_count=page_count,
             file_type="markdown",
+        )
+
+    def register_pptx(
+        self,
+        course_id: str,
+        file_path: str,
+        chapter_title: str | None,
+        page_count: int,
+    ) -> dict[str, Any]:
+        """Create or update one registry entry after a PowerPoint import."""
+
+        return self.register_material(
+            course_id=course_id,
+            file_path=file_path,
+            chapter_title=chapter_title,
+            page_count=page_count,
+            file_type="pptx",
         )
 
     def register_material(
@@ -159,6 +177,11 @@ class MaterialsRegistry:
 
         return self.resolve_material_path(course_id, expected_type="markdown")
 
+    def resolve_pptx_path(self, course_id: str) -> Path:
+        """Return a safe absolute path for reading the registered PowerPoint file."""
+
+        return self.resolve_material_path(course_id, expected_type="pptx")
+
     def resolve_material_path(self, course_id: str, expected_type: str | None = None) -> Path:
         """Return a safe absolute path for a registered material."""
 
@@ -192,6 +215,8 @@ class MaterialsRegistry:
             raise ValueError("PDF materials must use a .pdf file.")
         if file_type == "markdown" and suffix not in self.MARKDOWN_SUFFIXES:
             raise ValueError("Markdown materials must use a .md or .markdown file.")
+        if file_type == "pptx" and suffix not in self.PPTX_SUFFIXES:
+            raise ValueError("PowerPoint materials must use a .pptx or .pptm file.")
         if not resolved_path.exists():
             raise FileNotFoundError(f"Registered material file not found: {resolved_path}")
 
@@ -215,12 +240,18 @@ class MaterialsRegistry:
         suffix = Path(str(material.get("file_path") or material.get("file_name") or "")).suffix.lower()
         if suffix in self.MARKDOWN_SUFFIXES:
             return "markdown"
+        if suffix in self.PPTX_SUFFIXES:
+            return "pptx"
         return "pdf"
 
     def _normalize_file_type(self, file_type: str) -> str:
         normalized = file_type.strip().lower()
         if normalized in {"md", "markdown"}:
             return "markdown"
+        if normalized in {"ppt", "pptx", "pptm", "powerpoint", "presentation"}:
+            if normalized == "ppt":
+                raise ValueError("Legacy .ppt files are not supported yet. Please save as .pptx first.")
+            return "pptx"
         if normalized == "pdf":
             return "pdf"
         raise ValueError(f"Unsupported material file_type: {file_type}")
