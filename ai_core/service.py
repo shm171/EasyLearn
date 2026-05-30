@@ -4,11 +4,14 @@
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+import json
 import logging
 from pathlib import Path
 from threading import RLock, Thread
 from time import perf_counter, sleep, time
 from typing import Any
+
+from langchain_core.documents import Document
 
 from ai_core.agents.range_agent import RangeLearningAgent
 from ai_core.agents.evaluator_agent import LearningEvaluatorAgent
@@ -369,7 +372,7 @@ class LearningAIService:
         """Read, chunk, and store a PDF in the local vector database."""
 
         documents = self.pdf_loader.load_pdf(file_path=file_path, course_id=course_id, chapter_title=chapter_title)
-        chunks = self.text_splitter.split_documents(documents)
+        chunks = self.text_splitter.split_documents(_documents_for_index(documents))
         self.knowledge_base.delete_course(course_id)
         self.knowledge_base.add_documents(chunks)
         first_meta = documents[0].metadata
@@ -398,7 +401,7 @@ class LearningAIService:
         """Read, chunk, and store a Markdown file in the local vector database."""
 
         documents = self.markdown_loader.load_markdown(file_path=file_path, course_id=course_id, chapter_title=chapter_title)
-        chunks = self.text_splitter.split_documents(documents)
+        chunks = self.text_splitter.split_documents(_documents_for_index(documents))
         self.knowledge_base.delete_course(course_id)
         self.knowledge_base.add_documents(chunks)
         first_meta = documents[0].metadata
@@ -491,7 +494,7 @@ class LearningAIService:
                 self._set_index_job(course_id, status="indexing", progress=0.42, message="Extracting PDF text.")
                 documents = self._load_material_documents(course_id, file_path, file_type, chapter_title)
             self._set_index_job(course_id, status="indexing", progress=0.48, message="Splitting material text.")
-            chunks = self.text_splitter.split_documents(documents)
+            chunks = self.text_splitter.split_documents(_documents_for_index(documents))
             self._set_index_job(
                 course_id,
                 status="indexing",
@@ -776,17 +779,21 @@ class LearningAIService:
         if page_number > len(documents):
             raise ValueError(f"Material page {page_number} is outside 1-{len(documents)}.")
         document = documents[page_number - 1]
+        page = {
+            "page_number": document.metadata.get("page_number") or page_number,
+            "title": document.metadata.get("page_title") or _default_page_title(file_type, page_number),
+            "preview": _material_preview(document.page_content),
+            "content": document.page_content,
+            "char_count": len(document.page_content),
+            "file_type": file_type,
+        }
+        slide_layout = _slide_layout_from_metadata(document.metadata)
+        if slide_layout:
+            page["layout"] = slide_layout
         return {
             "material": {**material, "page_count": len(documents), "file_type": file_type},
             "page_count": len(documents),
-            "page": {
-                "page_number": document.metadata.get("page_number") or page_number,
-                "title": document.metadata.get("page_title") or _default_page_title(file_type, page_number),
-                "preview": _material_preview(document.page_content),
-                "content": document.page_content,
-                "char_count": len(document.page_content),
-                "file_type": file_type,
-            },
+            "page": page,
         }
 
     def update_markdown_page(self, course_id: str, page_number: int, content: str) -> dict[str, Any]:
@@ -1394,6 +1401,32 @@ def _material_preview(text: str, max_chars: int = 160) -> str:
         .split()
     )
     return compact[:max_chars]
+
+
+def _slide_layout_from_metadata(metadata: dict[str, Any]) -> dict[str, Any] | None:
+    raw_layout = metadata.get("slide_layout")
+    if not raw_layout:
+        return None
+    if isinstance(raw_layout, dict):
+        return raw_layout
+    if not isinstance(raw_layout, str):
+        return None
+    try:
+        layout = json.loads(raw_layout)
+    except json.JSONDecodeError:
+        return None
+    return layout if isinstance(layout, dict) else None
+
+
+def _documents_for_index(documents: list[Document]) -> list[Document]:
+    """Remove reader-only layout payloads before writing chunks to Chroma."""
+
+    sanitized_documents: list[Document] = []
+    for document in documents:
+        metadata = dict(document.metadata)
+        metadata.pop("slide_layout", None)
+        sanitized_documents.append(Document(page_content=document.page_content, metadata=metadata))
+    return sanitized_documents
 
 
 def _default_page_title(file_type: str, page_number: int) -> str:

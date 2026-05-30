@@ -317,7 +317,11 @@ export default function PdfReader({
                   />
                 ) : (
                   <article
-                    className={isPresentation ? "presentation-slide" : "markdown-page"}
+                    className={
+                      isPresentation
+                        ? `presentation-slide${currentMarkdownPage?.layout ? " presentation-slide-with-layout" : ""}`
+                        : "markdown-page"
+                    }
                     aria-label={`${typeLabel(fileType)} 第 ${currentPage} 页`}
                   >
                     {renderedMarkdownPage}
@@ -568,6 +572,17 @@ function requestMarkdownPage(requestsRef, courseId, pageNumber) {
 
 function renderVirtualPage(page, fileType) {
   if (fileType === "pptx") {
+    return <PresentationSlidePage page={page} />;
+  }
+  return renderMarkdown(page.content);
+}
+
+function PresentationSlidePage({ page }) {
+  const layout = page.layout && typeof page.layout === "object" ? page.layout : null;
+  const elements = Array.isArray(layout?.elements) ? layout.elements : [];
+  const width = Number(layout?.width || 12192000);
+  const height = Number(layout?.height || 6858000);
+  if (!layout || !elements.length || width <= 0 || height <= 0) {
     return (
       <>
         <div className="presentation-slide-meta">幻灯片 {page.page_number || ""}</div>
@@ -575,7 +590,185 @@ function renderVirtualPage(page, fileType) {
       </>
     );
   }
-  return renderMarkdown(page.content);
+
+  return (
+    <div
+      className="presentation-slide-layout"
+      style={{
+        aspectRatio: `${width} / ${height}`,
+        backgroundColor: layout.background || "#ffffff"
+      }}
+    >
+      {elements.map((element, index) => (
+        <PresentationElement
+          element={element}
+          slideWidth={width}
+          slideHeight={height}
+          key={element.id || `${element.type}-${index}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PresentationElement({ element, slideWidth, slideHeight }) {
+  const style = presentationElementStyle(element, slideWidth, slideHeight);
+  if (element.type === "image" && element.dataUri) {
+    return (
+      <img
+        className="presentation-element presentation-image"
+        src={element.dataUri}
+        alt={element.alt || element.name || "PowerPoint 图片"}
+        draggable={false}
+        style={{
+          ...style,
+          objectFit: element.objectFit || "contain"
+        }}
+      />
+    );
+  }
+
+  if (element.type === "table" && Array.isArray(element.rows)) {
+    return (
+      <div className="presentation-element presentation-table-wrap" style={style}>
+        <table className="presentation-table">
+          <tbody>
+            {element.rows.map((row, rowIndex) => (
+              <tr key={`row-${rowIndex}`}>
+                {(Array.isArray(row) ? row : []).map((cell, cellIndex) => (
+                  <td key={`cell-${rowIndex}-${cellIndex}`}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  if (element.type === "shape") {
+    return (
+      <div
+        className="presentation-element presentation-shape"
+        style={{
+          ...style,
+          backgroundColor: element.fill || "transparent",
+          borderColor: element.stroke || "transparent"
+        }}
+      />
+    );
+  }
+
+  if (element.type === "text") {
+    const paragraphs = Array.isArray(element.paragraphs) ? element.paragraphs : [];
+    return (
+      <div
+        className={`presentation-element presentation-text${element.placeholder ? ` placeholder-${element.placeholder}` : ""}`}
+        style={{
+          ...style,
+          backgroundColor: element.fill || "transparent",
+          borderColor: element.stroke || "transparent"
+        }}
+      >
+        {paragraphs.length ? (
+          paragraphs.map((paragraph, index) => (
+            <p
+              className={paragraph.bullet ? "presentation-bullet" : ""}
+              style={presentationParagraphStyle(paragraph)}
+              key={`paragraph-${index}`}
+            >
+              {paragraph.bullet ? <span className="presentation-bullet-mark">•</span> : null}
+              <span>{renderPresentationRuns(paragraph)}</span>
+            </p>
+          ))
+        ) : (
+          <p style={presentationParagraphStyle({})}>{element.text || ""}</p>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function renderPresentationRuns(paragraph) {
+  const runs = Array.isArray(paragraph.runs) ? paragraph.runs : [];
+  if (!runs.length) {
+    return paragraph.text || "";
+  }
+  return runs.map((run, index) => {
+    if (run.text === "\n") {
+      return <br key={`br-${index}`} />;
+    }
+    const fontSize = Number(run.fontSize || paragraph.fontSize || 22);
+    return (
+      <span
+        key={`run-${index}`}
+        style={{
+          color: run.color || paragraph.color || undefined,
+          fontSize: fontSize ? fontSizeForSlide(fontSize) : undefined,
+          fontWeight: run.bold ? 800 : undefined,
+          fontStyle: run.italic ? "italic" : undefined
+        }}
+      >
+        {run.text}
+      </span>
+    );
+  });
+}
+
+function presentationElementStyle(element, slideWidth, slideHeight) {
+  const left = percent(element.x, slideWidth);
+  const top = percent(element.y, slideHeight);
+  const width = percent(element.width, slideWidth);
+  const height = percent(element.height, slideHeight);
+  const rotation = Number(element.rotation || 0);
+  return {
+    left,
+    top,
+    width,
+    height,
+    zIndex: Number(element.order || 1),
+    transform: rotation ? `rotate(${rotation}deg)` : undefined
+  };
+}
+
+function presentationParagraphStyle(paragraph) {
+  const fontSize = Number(paragraph.fontSize || 22);
+  const level = Math.max(0, Number(paragraph.level || 0));
+  const align = normalizeTextAlign(paragraph.align);
+  return {
+    color: paragraph.color || "#202427",
+    fontSize: fontSizeForSlide(fontSize),
+    fontWeight: paragraph.bold ? 800 : undefined,
+    fontStyle: paragraph.italic ? "italic" : undefined,
+    textAlign: align,
+    paddingLeft: paragraph.bullet ? `${level * 1.1}em` : undefined
+  };
+}
+
+function fontSizeForSlide(fontSize) {
+  const safeSize = Math.max(8, Math.min(72, fontSize));
+  return `clamp(9px, ${(safeSize / 9.6).toFixed(3)}cqw, ${safeSize}px)`;
+}
+
+function normalizeTextAlign(value) {
+  if (value === "ctr") {
+    return "center";
+  }
+  if (value === "r") {
+    return "right";
+  }
+  if (value === "just") {
+    return "justify";
+  }
+  return "left";
+}
+
+function percent(value, total) {
+  const safeTotal = Number(total) || 1;
+  const ratio = (Number(value) || 0) / safeTotal;
+  return `${Math.max(0, Math.min(100, ratio * 100)).toFixed(4)}%`;
 }
 
 function renderMarkdown(content = "") {

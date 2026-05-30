@@ -471,6 +471,86 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.presentation-slide-with-layout {
+  min-height: 0;
+  aspect-ratio: auto;
+  display: block;
+  padding: 0;
+  background: #ffffff;
+  container-type: inline-size;
+}
+
+.presentation-slide-layout {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  background: #ffffff;
+}
+
+.presentation-element {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.presentation-image {
+  display: block;
+  user-select: none;
+}
+
+.presentation-text {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.35em 0.45em;
+  border: 1px solid transparent;
+  color: #202427;
+  line-height: 1.18;
+  white-space: pre-wrap;
+}
+
+.presentation-text p {
+  margin: 0 0 0.24em;
+  overflow-wrap: anywhere;
+}
+
+.presentation-text p:last-child {
+  margin-bottom: 0;
+}
+
+.presentation-bullet {
+  display: flex;
+  gap: 0.35em;
+}
+
+.presentation-bullet-mark {
+  flex: 0 0 auto;
+}
+
+.presentation-shape {
+  border: 2px solid transparent;
+}
+
+.presentation-table-wrap {
+  overflow: hidden;
+  border: 1px solid #c7d0d8;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.presentation-table {
+  width: 100%;
+  height: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: clamp(9px, 1.35cqw, 15px);
+}
+
+.presentation-table td {
+  padding: 0.35em 0.45em;
+  border: 1px solid #c7d0d8;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
 .presentation-slide-meta {
   justify-self: start;
   border-radius: 999px;

@@ -88,9 +88,14 @@ def test_reader_supports_powerpoint_materials() -> None:
     assert ".pptx,.pptm" in dialog
     assert "PowerPoint" in selector
     assert "PresentationThumbnail" in reader
+    assert "PresentationSlidePage" in reader
+    assert "PresentationElement" in reader
+    assert "dataUri" in reader
     assert "renderVirtualPage" in reader
     assert 'fileType === "pptx"' in reader
     assert "presentation-slide" in styles
+    assert "presentation-slide-layout" in styles
+    assert "presentation-image" in styles
     assert "presentation-thumbnail" in styles
 
 
